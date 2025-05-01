@@ -2,3 +2,4 @@
 sourcemod.code-workspace
 .vscode/
 .directory
+compiled/

@@ -28,6 +28,10 @@
 #define M2_WEAPON_SHOTGUN       1 << 1     // 2
 #define M2_WEAPON_SNIPER        1 << 2     // 4
 
+#define WEAPON_SMG              "weapon_smg,weapon_smg_silenced"
+#define WEAPON_SG               "weapon_pumpshotgun,shotgun_chrome"
+#define WEAPON_SNIPER           "weapon_sniper_scout"
+
 char SI_Names[][] =
 {
 	"Unknown",
@@ -55,8 +59,17 @@ int tempKillMapPills = -1;
 bool bIsPouncing[MAXPLAYERS + 1];		  // if a hunter player is currently pouncing
 bool bIsUsingAbility[MAXPLAYERS + 1];
 float fDmgPrint = 0.0;
+int iKillSI[MAXPLAYERS + 1];
+int iKillCI[MAXPLAYERS + 1];
 
 ConVar hRehealth;
+ConVar hReammo;
+ConVar hReammoSI;
+ConVar hReammoCI;
+ConVar hReammoSG;
+ConVar hReammoSMG;
+ConVar hReammoSniper;
+
 ConVar hSITimer;
 Handle g_hVote;
 
@@ -70,7 +83,7 @@ public Plugin myinfo =
 	name = "Amethyst Challenge",
 	author = "海洋空氣",
 	description = "Difficulty Controller for Amethyst Mod.",
-	version = "2.1",
+	version = "2.2",
 	url = "https://steamcommunity.com/id/larkspur2017/"
 };
 
@@ -78,6 +91,7 @@ public void OnPluginStart()
 {
 	RegConsoleCmd("sm_tz", challengeRequest, "打开难度控制系统菜单");
 	HookEvent("player_death", OnPlayerDeath, EventHookMode_Post);
+	HookEvent("infected_death", OnInfectedDeath, EventHookMode_Post);
 	HookEvent("ability_use", OnAbilityUse, EventHookMode_Post);
 	HookEvent("player_shoved", OnPlayerShoved, EventHookMode_Post);
 	HookEvent("player_hurt", OnPlayerHurt, EventHookMode_Post);
@@ -85,12 +99,19 @@ public void OnPluginStart()
 	HookEvent("tongue_release", OnTongueRelease);
 	HookEvent("tongue_broke_bent", OnTongueRelease);
 	HookEvent("tongue_pull_stopped", OnTonguePullStopped);
+	HookEvent("round_start", OnRoundStart, EventHookMode_PostNoCopy);
 
 	// 牛起身无敌修复
 	HookEvent("charger_carry_start", Event_ChargerCarryStart, EventHookMode_Post);
 	HookEvent("charger_pummel_start", Event_ChargerPummelStart, EventHookMode_Post);
 
 	hRehealth = CreateConVar("ast_rehealth",       "0", "击杀特感回血开关");
+	hReammo = CreateConVar("ast_reammo",       "0", "击杀回复备弹开关");
+	hReammoSI = CreateConVar("ast_reammo_SI",       "10", "回复备弹所需的特感击杀数");
+	hReammoCI = CreateConVar("ast_reammo_CI",       "25", "回复备弹所需的小僵尸击杀数");
+	hReammoSG = CreateConVar("ast_reammo_count_SG",       "8", "霰弹枪回复备弹数量");
+	hReammoSMG = CreateConVar("ast_reammo_count_SMG",       "100", "冲锋枪回复备弹数量");
+	hReammoSniper = CreateConVar("ast_reammo_count_Sniper",       "15", "狙击枪回复备弹数量");
 	hSITimer = CreateConVar("ast_sitimer",       "1", "特感刷新速率");
 	hDmgModifyEnable = CreateConVar("ast_dmgmodify", "1", "伤害修改总开关");
 	hDmgThreshold = CreateConVar("ast_dma_dmg", "12.0", "被控扣血数值");
@@ -100,15 +121,24 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_laser", laserCommand, "激光瞄准器开关");
 }
 
-public Action challengeRequest(int client, int args)
+public Action OnRoundStart(Handle event, const char[] name, bool dontBroadcast)
 {
-	if (client) {
-		drawPanel(client);
+	for (int i = 0; i <= MaxClients; i++) {
+		iKillSI[i] = 0;
+		iKillCI[i] = 0;
 	}
 	return Plugin_Handled;
 }
 
-public Action drawPanel(int client)
+public Action challengeRequest(int client, int args)
+{
+	if (client) {
+		drawPanel(client, 0);
+	}
+	return Plugin_Handled;
+}
+
+public Action drawPanel(int client, int first_item)
 {
 	// 创建面板
 	char buffer[64];
@@ -139,7 +169,9 @@ public Action drawPanel(int client)
 	else AddMenuItem(menu, "rh", "击杀特感回血");
 
 	// 6  5
-	AddMenuItem(menu, "wc", "天气控制");
+	if (GetConVarBool(hReammo))
+		AddMenuItem(menu, "", "击杀回复备弹 [已启用]");
+	else AddMenuItem(menu, "", "击杀回复备弹");
 
 	// 7  6
 	AddMenuItem(menu, "rs", "恢复默认设置");
@@ -149,7 +181,7 @@ public Action drawPanel(int client)
 	AddMenuItem(menu, "", "额外发药设定");
 
 	// 2  8
-	AddMenuItem(menu, "", "枪械参数设定（待定）");
+	AddMenuItem(menu, "wc", "天气控制");
 
 	// 3  9
 	AddMenuItem(menu, "", "Tank 设定");
@@ -161,31 +193,28 @@ public Action drawPanel(int client)
 	AddMenuItem(menu, "", "玩家特感设定");
 
 	// 6  12
-	AddMenuItem(menu, "", "激光瞄准器");
+	AddMenuItem(menu, "", "特感行动设定");
 
 	// 7  13
 	AddMenuItem(menu, "rs", "恢复默认设置");
 
 
-	DisplayMenu(menu, client, MENU_DISPLAY_TIME);
+	DisplayMenuAtItem(menu, client, first_item, MENU_DISPLAY_TIME);
 
 	// 清除已选未投票状态
 	ConVar hM2HunterWeapon = FindConVar("weapon_allow_m2_hunter");
 	char sM2HunterWeapon[256];
 	GetConVarString(hM2HunterWeapon, sM2HunterWeapon, sizeof(sM2HunterWeapon));
 
-	char sWeaponSMG[64] = "weapon_smg,weapon_smg_silenced";
-	char sWeaponSG[64] = "weapon_pumpshotgun,shotgun_chrome";
-	char sWeaponSniper[64] = "weapon_sniper_scout, weapon_sniper_awp";
 	// 0 完全禁止，1 允许机枪，2 允许喷子，4 允许狙击
 	tempM2HunterFlag = 0;
-	if (StrContains(sM2HunterWeapon, sWeaponSMG) >= 0) {
+	if (StrContains(sM2HunterWeapon, WEAPON_SMG) >= 0) {
 		tempM2HunterFlag ^= M2_WEAPON_SMG;
 	}
-	if ((StrContains(sM2HunterWeapon, sWeaponSG) >= 0)) {
+	if ((StrContains(sM2HunterWeapon, WEAPON_SG) >= 0)) {
 		tempM2HunterFlag ^= M2_WEAPON_SHOTGUN;
 	}
-	if ((StrContains(sM2HunterWeapon, sWeaponSniper) >= 0)) {
+	if ((StrContains(sM2HunterWeapon, WEAPON_SNIPER) >= 0)) {
 		tempM2HunterFlag ^= M2_WEAPON_SNIPER;
 	}
 	return Plugin_Handled;
@@ -206,7 +235,7 @@ public int MenuHandler(Handle menu, MenuAction action, int client, int param)
 				else {
 					SetConVarBool(hRatioDamage, true);
 				}
-				drawPanel(client);
+				drawPanel(client, 0);
 			}
 			case 1: {
 				Menu_TankDmg(client, false);
@@ -219,7 +248,7 @@ public int MenuHandler(Handle menu, MenuAction action, int client, int param)
 					Menu_SIDamage(client, false);
 				else {
 					PrintToChat(client, "\x04[SM] \x01当前模式不支持调整特感伤害.");
-					drawPanel(client);
+					drawPanel(client, 0);
 				}
 			}
 			case 4: {
@@ -235,9 +264,21 @@ public int MenuHandler(Handle menu, MenuAction action, int client, int param)
 					SetConVarBool(hRehealth, true);
 					PrintToChatAll("\x04[SM] \x01有人打开了击杀回血.");
 				}
-				drawPanel(client);
-			} case 5: {
-				FakeClientCommand(client, "sm_weather");
+				drawPanel(client, 0);
+			} case 5: { // 击杀回备弹
+				if (GetClientTeam(client) != TEAM_SURVIVORS) {
+					PrintToChat(client, "\x04[SM] \x01仅限生还者选择!");
+					return 1;
+				}
+				if (GetConVarBool(hReammo)) {
+					SetConVarBool(hReammo, false);
+					PrintToChatAll("\x04[SM] \x01有人关闭了击杀回复备弹.");
+				}
+				else {
+					SetConVarBool(hReammo, true);
+					PrintToChatAll("\x04[SM] \x01有人打开了击杀回复备弹.");
+				}
+				drawPanel(client, 0);
 			}
 			case 6: {
 				if (GetClientTeam(client) != TEAM_SURVIVORS) {
@@ -247,14 +288,13 @@ public int MenuHandler(Handle menu, MenuAction action, int client, int param)
 				ResetSettings();
 				if (GetDifficulty() == 1)
 					SIDamage(12.0);
-				drawPanel(client);
+				drawPanel(client, 0);
 			}
-			case 7: {
+			case 7: { // 自动发药
 				Menu_MorePills(client, false);
 			}
-			case 8: { // 枪械 / 待定
-				PrintToChat(client, "此项待定");
-				drawPanel(client);
+			case 8: { // 天气
+				FakeClientCommand(client, "sm_weather");
 			}
 			case 9: { // Tank
 				Menu_Tank(client, false);
@@ -265,7 +305,7 @@ public int MenuHandler(Handle menu, MenuAction action, int client, int param)
 			case 11: { // 玩家特感
 				Menu_PlayerInfected(client, false);
 			}
-			case 12: { // 激光
+			case 12: { // 特感行动
 				// 开、关
 				if (GetClientTeam(client) != TEAM_SURVIVORS) {
 					PrintToChat(client, "\x04[SM] \x01仅限生还者选择!");
@@ -281,7 +321,7 @@ public int MenuHandler(Handle menu, MenuAction action, int client, int param)
 				ResetSettings();
 				if (GetDifficulty() == 1)
 					SIDamage(12.0);
-				drawPanel(client);
+				drawPanel(client, 7);
 			}
 		}
 	}
@@ -342,9 +382,9 @@ public int Menu_TankDmgHandler(Handle vote, MenuAction action, int client, int p
 				TZ_CallVote(client, 1, 100);
 			}
 		}
-		drawPanel(client);
+		drawPanel(client, 0);
 	}
-	else if (action == MenuAction_Cancel) drawPanel(client);
+	else if (action == MenuAction_Cancel) drawPanel(client, 0);
 	return 1;
 }
 
@@ -524,19 +564,16 @@ public void M2HunterVoteResultHandler(Handle vote, int num_votes, int num_client
 			if (item_info[i][BUILTINVOTEINFO_ITEM_VOTES] > (num_votes / 2)) {
 				DisplayBuiltinVotePass(vote, "正在修改推 Hunter 设定 ...");
 
-				char sWeaponSMG[64] = "weapon_smg,weapon_smg_silenced";
-				char sWeaponSG[64] = "weapon_pumpshotgun,shotgun_chrome";
-				char sWeaponSniper[64] = "weapon_sniper_scout";
 				char sBuffer[256];
 
 				if (tempM2HunterFlag & 1) {
-					Format(sBuffer, sizeof(sBuffer), "%s%s,", sBuffer, sWeaponSMG);
+					Format(sBuffer, sizeof(sBuffer), "%s%s,", sBuffer, WEAPON_SMG);
 				}
 				if (tempM2HunterFlag & 2) {
-					Format(sBuffer, sizeof(sBuffer), "%s%s,", sBuffer, sWeaponSG);
+					Format(sBuffer, sizeof(sBuffer), "%s%s,", sBuffer, WEAPON_SG);
 				}
 				if (tempM2HunterFlag & 4) {
-					Format(sBuffer, sizeof(sBuffer), "%s%s,", sBuffer, sWeaponSniper);
+					Format(sBuffer, sizeof(sBuffer), "%s%s,", sBuffer, WEAPON_SNIPER);
 				}
 
 				SetConVarString(FindConVar("weapon_allow_m2_hunter"), sBuffer);
@@ -664,9 +701,9 @@ public int Menu_SITimerHandler(Handle menu, MenuAction action, int client, int p
 				TZ_CallVoteStr(client, 1, buffer);
 			}
 		}
-		drawPanel(client);
+		drawPanel(client, 0);
 	}
-	else if (action == MenuAction_Cancel) drawPanel(client);
+	else if (action == MenuAction_Cancel) drawPanel(client, 0);
 	return 1;
 }
 
@@ -761,8 +798,8 @@ public int Menu_SIDamageHandler(Handle menu, MenuAction action, int client, int 
 			default:
 				SIDamage(12.0);
 		}
-		drawPanel(client);
-	} else if (action == MenuAction_Cancel) drawPanel(client);
+		drawPanel(client, 0);
+	} else if (action == MenuAction_Cancel) drawPanel(client, 0);
 	return 1;
 }
 
@@ -817,9 +854,9 @@ public int Menu_MorePillsHandler(Handle menu, MenuAction action, int client, int
 				}
 			}
 		}
-		drawPanel(client);
+		drawPanel(client, 7);
 	}
-	else if (action == MenuAction_Cancel) drawPanel(client);
+	else if (action == MenuAction_Cancel) drawPanel(client, 7);
 	return 1;
 }
 
@@ -868,9 +905,9 @@ public int Menu_TankHandler(Handle menu, MenuAction action, int client, int para
 				}
 			}
 		}
-		drawPanel(client);
+		drawPanel(client, 7);
 	}
-	else if (action == MenuAction_Cancel) drawPanel(client);
+	else if (action == MenuAction_Cancel) drawPanel(client, 7);
 	return 1;
 }
 
@@ -913,7 +950,7 @@ public int Menu_HunterM2Handler(Handle menu, MenuAction action, int client, int 
 		}
 		Menu_HunterM2(client, false);
 	}
-	else if (action == MenuAction_Cancel) drawPanel(client);
+	else if (action == MenuAction_Cancel) drawPanel(client, 7);
 	return 1;
 }
 
@@ -1007,7 +1044,7 @@ public int Menu_PlayerInfectedHandler(Handle menu, MenuAction action, int client
 		}
 		DisplayMenu(menu, client, MENU_DISPLAY_TIME);
 	}
-	else if (action == MenuAction_Cancel) drawPanel(client);
+	else if (action == MenuAction_Cancel) drawPanel(client, 7);
 	return 1;
 }
 
@@ -1048,9 +1085,9 @@ public int Menu_LaserHandler(Handle menu, MenuAction action, int client, int par
 				ToggleLaser(client, false);
 			}
 		}
-		drawPanel(client);
+		drawPanel(client, 7);
 	}
-	else if (action == MenuAction_Cancel) drawPanel(client);
+	else if (action == MenuAction_Cancel) drawPanel(client, 7);
 	return 1;
 }
 
@@ -1159,14 +1196,13 @@ public Action OnPlayerDeath(Handle event, const char[] name, bool dontBroadcast)
 {
 	int victim = GetClientOfUserId(GetEventInt(event, "userid"));
 	int attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	if (attacker == 0 || victim == 0 || GetClientTeam(attacker) == TEAM_SPECTATORS) return Plugin_Handled;
+	int zombie = GetZombieClass(victim);
+	// 击杀回血
 	if (GetConVarBool(hRehealth)) {
 		bool headshot = GetEventBool(event, "headshot");
 		char weapon[64];
 		GetEventString(event, "weapon", weapon, sizeof(weapon));
-
-		if (attacker == 0 || victim == 0 || GetClientTeam(attacker) == TEAM_SPECTATORS) return Plugin_Handled;
-
-		int zombie = GetZombieClass(victim);
 		int HP = GetEntProp(attacker, Prop_Data, "m_iHealth");
 		int tHP = GetClientHealth(attacker);
 		int addHP = 0;
@@ -1215,11 +1251,71 @@ public Action OnPlayerDeath(Handle event, const char[] name, bool dontBroadcast)
 			SetEntProp(attacker, Prop_Data, "m_iHealth", 100);
 	}
 
+	// 击杀回复备弹，打开开关才开始计数
+	if (GetConVarBool(hReammo)) {
+		int iPrimaryWeaponId = GetPlayerWeaponSlot(attacker, 0);
+		char sPrimaryWeapon[32];
+		GetEdictClassname(iPrimaryWeaponId, sPrimaryWeapon, sizeof(sPrimaryWeapon));
+
+		int ammoOffset = FindSendPropInfo("CCSPlayer", "m_iAmmo");
+		if (zombie < ZC_WITCH) {
+			iKillSI[attacker]++;
+		}
+		if (zombie == ZC_WITCH || iKillSI[attacker] % GetConVarInt(hReammoSI) == 0) {
+			giveAmmo(attacker, sPrimaryWeapon, ammoOffset);
+		}
+		if (zombie == ZC_TANK) {
+			for (int client = 1; client <= MaxClients; ++client) {
+				if (!IsClientInGame(client) || IsFakeClient(client) || (GetClientTeam(client) != TEAM_SURVIVORS))  continue;
+				giveAmmo(client, sPrimaryWeapon, ammoOffset);
+			}
+		}
+	}
+
+	// Unhook OnTakeDamage
 	if ( isInfected(victim) ) {
 		bIsUsingAbility[victim] = false;
 		SDKUnhook(victim, SDKHook_OnTakeDamage, OnTakeDamage);
 	}
 	return Plugin_Continue;
+}
+
+public Action OnInfectedDeath(Handle event, const char[] name, bool dontBroadcast)
+{
+	int victim = GetClientOfUserId(GetEventInt(event, "infected_id"));
+	int attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	if (attacker == 0 || victim == 0 || GetClientTeam(attacker) == TEAM_SPECTATORS) return Plugin_Handled;
+
+	if (GetConVarBool(hReammo)) {
+		int iPrimaryWeaponId = GetPlayerWeaponSlot(attacker, 0);
+		if (iPrimaryWeaponId == -1) return Plugin_Handled; // 无主武器
+		char sPrimaryWeapon[32];
+		GetEdictClassname(iPrimaryWeaponId, sPrimaryWeapon, sizeof(sPrimaryWeapon));
+
+		int ammoOffset = FindSendPropInfo("CCSPlayer", "m_iAmmo");
+		if (iKillCI[attacker] % GetConVarInt(hReammoCI) == 0) {
+			giveAmmo(attacker, sPrimaryWeapon, ammoOffset);
+		}
+	}
+	return Plugin_Continue;
+}
+
+public void giveAmmo(int client, char[] sPrimaryWeapon, int ammoOffset) {
+	int addAmmo = 0;
+	int finalOffset = 0;
+
+	if (StrContains(WEAPON_SMG, sPrimaryWeapon) >= 0) {
+		finalOffset = ammoOffset+(5*4);
+		addAmmo = GetConVarInt(hReammoSMG);
+	} else if ((StrContains(WEAPON_SG, sPrimaryWeapon) >= 0)) {
+		finalOffset = ammoOffset+(7*4);
+		addAmmo = GetConVarInt(hReammoSG);
+	} else if ((StrContains(WEAPON_SNIPER, sPrimaryWeapon) >= 0)) {
+		finalOffset = ammoOffset+(10*4);
+		addAmmo = GetConVarInt(hReammoSniper);
+	}
+	int ammo = GetEntData(client, finalOffset);
+	SetEntData(client, finalOffset, ammo + addAmmo);
 }
 
 // While a Charger is carrying a Survivor, undo any friendly fire done to them
@@ -1294,14 +1390,6 @@ public void BypassAndExecuteCommand(int client, char[] strCommand, char[] strPar
 	FakeClientCommand(client, "%s %s", strCommand, strParam1);
 	SetCommandFlags(strCommand, flags);
 }
-
-/**
- * 这个插件刚开始是设计了很多自定义选项，后来删减了很多，
- * 如果闲着无聊往前几个版本翻源码也会看到那些注释掉的代码。
- * 删减的原因也很简单，一是我自己看不出差别，二是功能很少人使用，占着个位置，导致其他选项需要翻页，是我不想看到的。
- * 原本的 Challenge 和 Damage Modifier 两个插件耦合度非常高，导致某次更新后出现插件顺序问题导致不能正常读取，所以后来也是整合了两个插件。
- * 回血的爆 ht 部分可以改成直接使用 Skill Detect 判断，跟砍舌处死一样的，不用额外写这一堆代码判断状态。
- */
 
 ///////////////////////////////////////////////////
 //                Damage Modifier                //

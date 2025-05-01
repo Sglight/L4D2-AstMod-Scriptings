@@ -16,15 +16,13 @@ Handle hTankGain;
 Handle hFFLose;
 Handle hOtherGain;
 
-Handle hKillAmmoPack;
-
 Handle hZeusX27Enabled;
 Handle hZeusX27Weapon;
 Handle hZeusX27Range;
 Handle hZeusX27Damage;
 Handle hZeusX27Frequency;
 
-bool grenade[MAXPLAYERS] = false;
+bool grenade[MAXPLAYERS] = { false };
 int money[MAXPLAYERS];
 
 int zx27[MAXPLAYERS];
@@ -72,8 +70,6 @@ public void OnPluginStart() {
 	hFFLose = CreateConVar("gp_fflose", "100", "攻击队友时扣除的现金.", FCVAR_PROTECTED, true, 0.0, false);
 	hOtherGain = CreateConVar("gp_othergain", "100", "其他击杀获得的现金.", FCVAR_PROTECTED, true, 0.0, false);
 
-	hKillAmmoPack = CreateConVar("gp_killammopack", "1", "删除子弹堆.", FCVAR_PROTECTED, true, 0.0, false);
-
 	hZeusX27Enabled = CreateConVar("gp_zx27nabled", "1", "电击枪开关", FCVAR_PROTECTED, true, 0.0, false, 0.0);
 	hZeusX27Weapon = CreateConVar("gp_zx27weapon", "weapon_melee, weapon_pistol_magnum, weapon_pistol, weapon_dual_pistols", "附加电击枪的武器，支持多武器，逗号分隔", FCVAR_PROTECTED, true, 0.0, false, 0.0);
 	hZeusX27Range = CreateConVar("gp_zx27range", "300", "电击枪的最大距离", FCVAR_PROTECTED, true, 0.0, false, 0.0);
@@ -92,17 +88,19 @@ public void OnClientPutInServer(int client)
 
 public Action GiveMoney(int client, int args)
 {
-	if (!client) return;
+	if (!client) return Plugin_Handled;
 	char givemoneyChar[12];
 	GetCmdArg(1, givemoneyChar, sizeof(givemoneyChar));
 	money[client] += StringToInt(givemoneyChar);
 	Menu_CreateWeaponMenu(client, false);
+	return Plugin_Handled;
 }
 
 public Action BuyWeapons(int client, int args)
 {
-	if (!client) return;
+	if (!client) return Plugin_Handled;
 	Menu_CreateWeaponMenu(client, false);
+	return Plugin_Handled;
 }
 
 public Action Event_PlayerTeam(Handle event, const char[] name, bool dontBroadcast)
@@ -112,6 +110,7 @@ public Action Event_PlayerTeam(Handle event, const char[] name, bool dontBroadca
 	if (client > 0 && IsClientInGame(client) && !IsFakeClient(client) && newteam == 2) {
 		Menu_CreateWeaponMenu(client, false);
 	}
+	return Plugin_Continue;
 }
 
 public Action Event_RoundStart(Handle event, const char[] name, bool dontBroadcast)
@@ -122,10 +121,7 @@ public Action Event_RoundStart(Handle event, const char[] name, bool dontBroadca
 		}
 		grenade[client] = false;
 	}
-
-	if ( GetConVarBool(hKillAmmoPack) ) {
-		CreateTimer(1.0, Timer_KillAmmoPack, _, TIMER_FLAG_NO_MAPCHANGE);
-	}
+	return Plugin_Handled;
 }
 
 public Action Event_PlayerDeath(Handle event, const char[] name, bool dontBroadcast)
@@ -176,7 +172,7 @@ public Action Event_PlayerDeath(Handle event, const char[] name, bool dontBroadc
 						PrintCenterText(i, "击杀 Tank 获得 $%d", tankgain);
 					}
 				}
-				return;
+				return Plugin_Continue;
 			}
 		} // end switch
 		char str[64];
@@ -184,6 +180,7 @@ public Action Event_PlayerDeath(Handle event, const char[] name, bool dontBroadc
 		PrintCenterText(attacker, str);
 		money[attacker] += gain;
 	}
+	return Plugin_Continue;
 }
 
 public Action Event_PlayerHurt(Handle event, const char[] name, bool dontBroadcast)
@@ -199,6 +196,7 @@ public Action Event_PlayerHurt(Handle event, const char[] name, bool dontBroadca
 		PrintCenterText(attacker, str);
 		money[attacker] -= lose;
 	}
+	return Plugin_Continue;
 }
 
 public Action Menu_CreateWeaponMenu(int client, int args) {
@@ -256,12 +254,13 @@ public int Menu_SpawnWeaponHandler(Handle menu, MenuAction action, int client, i
 		Menu_CreateWeaponMenu(client, false);
 	} else if (action == MenuAction_End)
 		CloseHandle(menu);
+	return 1;
 }
 
 public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3], float angles[3], int& weapon)
 {
 	if (!GetConVarBool(hZeusX27Enabled) || isUsingZX27[client]) {
-		return;
+		return Plugin_Continue;
 	}
 
 	if (bIsSurvior(client) && zx27[client] < GetConVarInt(hZeusX27Frequency) && buttons & IN_ZOOM) {
@@ -283,9 +282,9 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 				int target = GetClientAimTarget(client, true);
 				if (bIsInfected(target))
 				{
-					float clientPos[3] = 0.0;
+					float clientPos[3] = { 0.0 };
 					GetClientEyePosition(client, clientPos);
-					float targetPos[3] = 0.0;
+					float targetPos[3] = { 0.0 };
 					GetClientEyePosition(target, targetPos);
 					float distance = GetVectorDistance(clientPos, targetPos, false);
 					float zeusX27Range = GetConVarFloat(hZeusX27Range);
@@ -309,11 +308,13 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 			}
 		}
 	}
+	return Plugin_Continue;
 }
 
 Action Timer_ResetUsingZX27(Handle timer, int client)
 {
 	isUsingZX27[client] = false;
+	return Plugin_Handled;
 }
 
 void ShowParticle(float vPos[3], float vAng[3], char[] particlename, float time)
@@ -341,6 +342,7 @@ Action DeleteParticles(Handle timer, int particle)
 			AcceptEntityInput(particle, "kill", -1, -1, 0);
 		}
 	}
+	return Plugin_Handled;
 }
 
 char[] GetOtherClientMoney(int self)
@@ -361,23 +363,6 @@ void GiveWeapons(int client, char[] weapon, int price)
 		money[client] -= price;
 	} else {
 		PrintHintText(client, "您的现金不够嗷~");
-	}
-}
-
-Action Timer_KillAmmoPack(Handle timer)
-{
-	char classname[128];
-	int entityCount = GetEntityCount();
-
-	for (int i = 1; i <= entityCount; i++)
-	{
-		if (!IsValidEntity(i)) { continue; }
-
-		// check item type
-		GetEdictClassname(i, classname, sizeof(classname));
-		if ( StrEqual(classname, "weapon_ammo_spawn") ) {
-			AcceptEntityInput(i, "Kill");
-		}
 	}
 }
 
@@ -421,12 +406,3 @@ bool bIsInfected(int client) {
 int GetZombieClass(int client) {
 	return GetEntProp(client, Prop_Send, "m_zombieClass");
 }
-
-/**
- * 这个插件就是 Wingman 模式的主要插件了，看名字也看得出来，原本叫 give_pistol，是没有经济系统，只有手枪的，现在的 cvar 也依然保留着当年的命名。
- * 后来联系上之前“提高玩家玩狙的积极性”的想法，便加上了狙，同时加入了丢枪（记不清写插件的顺序了，先有鸡还是先有蛋的问题），持枪减速等。
- * Amethyst 是我做得最用心的一套插件（虽然一共就两个插件，一个 ht，一个 Amethyst），Wingman 也是我各种奇特想法的实现地。
- * 最早是跟 William 测试插件时，弄了个无限子弹 Magnum，都觉得挺有意思的，于是便单独做了这个模式。想贴个他的视频链接的，但是被他删了，行吧。
- * 原本还有一个电击枪的功能的，电一下1200血，秒单人 tank，一回合一次，带特效。但是 tmd 源码丢失了，后来渐渐发现丢失的源码不止这一个，服了。
- * 电击枪功能从前面的版本找到了编译后的文件，反编译改成了现在这个样子。
- */

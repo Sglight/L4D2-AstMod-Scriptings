@@ -7,39 +7,51 @@
 
 #include <sourcemod>
 #include <sdktools>
-#include <left4dhooks>
 
 // This plugin was created because of a Hard12 bug where one ore more survivors were not taking damage while pinned
 // by special infected. If the whole team is immobilised, they get a grace period before they are AutoWiped.
-public Plugin myinfo = {
+public Plugin myinfo =
+{
 	name = "AutoWipe",
-	author = "Breezy",
+	author = "Breezy, 海洋空氣",
 	description = "Wipes the team if they are simultaneously incapped/pinned for a period of time",
-	version = "1.0"
+	version = "1.1"
 };
 
 bool g_bCanAllowNewAutowipe = false; // start true to prevent autowipe being activated at round start
 bool bIsWipping = false;
+bool bIsPinned[MaxClients + 1] = { false };
 
-public void OnPluginStart() {
+public void OnPluginStart()
+{
+    HookEvent("tongue_grab", smoker_land);
+    HookEvent("tongue_release", smoker_clear);
+    HookEvent("jockey_ride", jockey_land);
+    HookEvent("jockey_ride_end", jockey_clear);
+    HookEvent("pounce_stopped", hunter_clear);
+    HookEvent("charger_impact", multi_charge);
+    HookEvent("charger_carry_end", charger_land_instant);
+    HookEvent("charger_pummel_start", charger_land);
+    HookEvent("charger_pummel_end", charger_clear);
+
+	HookEvent("player_left_start_area", EnableAutoWipe, EventHookMode_PostNoCopy);
 	// Disabling autowipe
-	HookEvent("map_transition", view_as<EventHook>(DisableAutoWipe), EventHookMode_PostNoCopy);
-	HookEvent("mission_lost", view_as<EventHook>(DisableAutoWipe), EventHookMode_PostNoCopy);
-	HookEvent("round_end", view_as<EventHook>(DisableAutoWipe), EventHookMode_PostNoCopy);
+	HookEvent("map_transition", DisableAutoWipe, EventHookMode_PostNoCopy);
+	HookEvent("mission_lost", DisableAutoWipe, EventHookMode_PostNoCopy);
+	HookEvent("round_end", DisableAutoWipe, EventHookMode_PostNoCopy);
 }
 
-public void DisableAutoWipe() {
+public Action DisableAutoWipe(Handle event, const char[] name, bool dontBroadcast)
+{
 	g_bCanAllowNewAutowipe = false; // prevents autowipe from being called until next map
 	bIsWipping = false;
+	return Plugin_Handled;
 }
 
-public Action L4D_OnFirstSurvivorLeftSafeArea(int client) {
-	g_bCanAllowNewAutowipe = true;
-}
-
-public Action L4D2_OnEndVersusModeRound(bool countSurvivors)
+public Action EnableAutoWipe(Handle event, const char[] name, bool dontBroadcast)
 {
-	DisableAutoWipe();
+	g_bCanAllowNewAutowipe = true;
+	return Plugin_Handled;
 }
 
 public void OnGameFrame() {

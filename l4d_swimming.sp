@@ -1,16 +1,49 @@
-#define PLUGIN_VERSION 		"1.4"
+/*
+*	Swimming
+*	Copyright (C) 2020 Silvers
+*
+*	This program is free software: you can redistribute it and/or modify
+*	it under the terms of the GNU General Public License as published by
+*	the Free Software Foundation, either version 3 of the License, or
+*	(at your option) any later version.
+*
+*	This program is distributed in the hope that it will be useful,
+*	but WITHOUT ANY WARRANTY; without even the implied warranty of
+*	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+*	GNU General Public License for more details.
+*
+*	You should have received a copy of the GNU General Public License
+*	along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 
-/*=======================================================================================
+
+
+#define PLUGIN_VERSION 		"1.8"
+
+/*======================================================================================
 	Plugin Info:
 
 *	Name	:	[L4D & L4D2] Swimming
 *	Author	:	SilverShot
 *	Descrp	:	Lets players Swim and Dive in water.
-*	Link	:	http://forums.alliedmods.net/showthread.php?t=187565
-*	Plugins	:	http://sourcemod.net/plugins.php?exact=exact&sortby=title&search=1&author=Silvers
+*	Link	:	https://forums.alliedmods.net/showthread.php?t=187565
+*	Plugins	:	https://sourcemod.net/plugins.php?exact=exact&sortby=title&search=1&author=Silvers
 
 ========================================================================================
 	Change Log:
+
+1.8 (30-Sep-2020)
+	- Fixed compile errors on SM 1.11.
+
+1.7 (18-Sep-2020)
+	- Added cvar "l4d_swim_incap" to control if being incapacitated in the water drowns the player.
+	- Fixed rare "OnPlayerRunCmd" throwing client "not connected" or "not in game" errors.
+
+1.6 (10-May-2020)
+	- Extra checks to prevent "IsAllowedGameMode" throwing errors.
+
+1.5 (01-Apr-2020)
+	- Fixed "IsAllowedGameMode" from throwing errors when the "_tog" cvar was changed before MapStart.
 
 1.4 (05-May-2018)
 	- Converted plugin source to the latest syntax utilizing methodmaps. Requires SourceMod 1.8 or newer.
@@ -36,16 +69,18 @@
 #include <sourcemod>
 #include <sdktools>
 #include <sdkhooks>
+#include <left4dhooks>
 
 #define CVAR_FLAGS			FCVAR_NOTIFY
 #define CHAT_TAG			"\x04[\x05Swimming] \x01"
 
-ConVar g_hCvarAllow, g_hCvarDecayRate, g_hCvarDive, g_hCvarDrown, g_hCvarMPGameMode, g_hCvarModes, g_hCvarModesOff, g_hCvarModesTog, g_hCvarRate, g_hCvarSpeedDown, g_hCvarSpeedIdle, g_hCvarSpeedJmp, g_hCvarSpeedUp;
-int g_iCvarDive, g_iCvarDrown, g_iHealth[MAXPLAYERS+1], g_iPlayerEnum[MAXPLAYERS+1], g_iSwimming[MAXPLAYERS+1], g_iWater[MAXPLAYERS+1];
-float g_fCvarDecayRate, g_fCvarRate, g_fCvarSpeedDown, g_fCvarSpeedIdle, g_fCvarSpeedJmp, g_fCvarSpeedUp, g_fHealth[MAXPLAYERS+1];
-bool g_bCvarAllow, g_bLeft4Dead2;
 
-enum ()
+ConVar g_hCvarAllow, g_hCvarDecayRate, g_hCvarDive, g_hCvarDrown, g_hCvarIncap, g_hCvarMPGameMode, g_hCvarModes, g_hCvarModesOff, g_hCvarModesTog, g_hCvarRate, g_hCvarSpeedDown, g_hCvarSpeedIdle, g_hCvarSpeedJmp, g_hCvarSpeedUp;
+int g_iCvarDive, g_iCvarDrown, g_iCvarIncap, g_iHealth[MAXPLAYERS+1], g_iPlayerEnum[MAXPLAYERS+1], g_iSwimming[MAXPLAYERS+1], g_iWater[MAXPLAYERS+1];
+float g_fCvarDecayRate, g_fCvarRate, g_fCvarSpeedDown, g_fCvarSpeedIdle, g_fCvarSpeedJmp, g_fCvarSpeedUp, g_fHealth[MAXPLAYERS+1];
+bool g_bCvarAllow, g_bMapStarted, g_bLeft4Dead2;
+
+enum
 {
 	BLOCKED = 1,
 	POUNCED = 2
@@ -62,7 +97,7 @@ public Plugin myinfo =
 	author = "SilverShot",
 	description = "Lets players Swim and Dive in water.",
 	version = PLUGIN_VERSION,
-	url = "http://forums.alliedmods.net/showthread.php?t=187565"
+	url = "https://forums.alliedmods.net/showthread.php?t=187565"
 }
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
@@ -85,14 +120,15 @@ public void OnPluginStart()
 	g_hCvarModesOff =	CreateConVar(	"l4d_swim_modes_off",	"",				"Turn off the plugin in these game modes, separate by commas (no spaces). (Empty = none).", CVAR_FLAGS );
 	g_hCvarModesTog =	CreateConVar(	"l4d_swim_modes_tog",	"0",			"Turn on the plugin in these game modes. 0=All, 1=Coop, 2=Survival, 4=Versus, 8=Scavenge. Add numbers together.", CVAR_FLAGS );
 	g_hCvarDive =		CreateConVar(	"l4d_swim_dive",		"1",			"0=Only bobbin on the surface, 1=Allows players to dive.", CVAR_FLAGS);
-	g_hCvarDrown =		CreateConVar(	"l4d_swim_drown",		"1",			"0=Stay on surface when caught by infected, 1=Sink when caught.", CVAR_FLAGS);
-	g_hCvarRate =		CreateConVar(	"l4d_swim_rate",		"0.1",			"0.0=Off. How much air is lost per second when diving. Players die when they have 0 air.", CVAR_FLAGS);
+	g_hCvarDrown =		CreateConVar(	"l4d_swim_drown",		"0",			"0=Stay on surface when caught by infected, 1=Sink when caught.", CVAR_FLAGS);
+	g_hCvarIncap =		CreateConVar(	"l4d_swim_incap",		"0",			"0=Allow being incapacitated when swimming (they float). 1=Stops the player swimming letting them drown.", CVAR_FLAGS);
+	g_hCvarRate =		CreateConVar(	"l4d_swim_rate",		"0.0",			"0.0=Off. How much air is lost per second when diving. Players die when they have 0 air.", CVAR_FLAGS);
 	g_hCvarSpeedDown =	CreateConVar(	"l4d_swim_speed_down",	"-30.0",		"How fast to teleport downwards when they hold DUCK.", CVAR_FLAGS);
 	g_hCvarSpeedIdle =	CreateConVar(	"l4d_swim_speed_idle",	"15.0",			"How fast to teleport players when they are not pressing any keys.", CVAR_FLAGS);
 	g_hCvarSpeedJmp =	CreateConVar(	"l4d_swim_speed_jump",	"400.0",		"How fast to teleport players when jumping out of the water.", CVAR_FLAGS);
 	g_hCvarSpeedUp =	CreateConVar(	"l4d_swim_speed_up",	"30.0",			"How fast to teleport players who are pressing the SPRINT/WALK key.", CVAR_FLAGS);
-	CreateConVar(						"l4d_swim_version",		PLUGIN_VERSION, "Swimming plugin version.", CVAR_FLAGS|FCVAR_DONTRECORD);
-	AutoExecConfig(true,				"l4d_swim");
+	CreateConVar(						"l4d_swim_version",		PLUGIN_VERSION, "Swimming plugin version.", FCVAR_NOTIFY|FCVAR_DONTRECORD);
+	// AutoExecConfig(true,				"l4d_swim");
 
 	g_hCvarDecayRate = FindConVar("pain_pills_decay_rate");
 	g_hCvarMPGameMode = FindConVar("mp_gamemode");
@@ -103,14 +139,14 @@ public void OnPluginStart()
 	g_hCvarModesTog.AddChangeHook(ConVarChanged_Allow);
 	g_hCvarDive.AddChangeHook(ConVarChanged_Cvars);
 	g_hCvarDrown.AddChangeHook(ConVarChanged_Cvars);
+	g_hCvarIncap.AddChangeHook(ConVarChanged_Cvars);
 	g_hCvarRate.AddChangeHook(ConVarChanged_Cvars);
 	g_hCvarSpeedDown.AddChangeHook(ConVarChanged_Cvars);
 	g_hCvarSpeedIdle.AddChangeHook(ConVarChanged_Cvars);
 	g_hCvarSpeedJmp.AddChangeHook(ConVarChanged_Cvars);
 	g_hCvarSpeedUp.AddChangeHook(ConVarChanged_Cvars);
-	
-	HookEvent("versus_round_start", 	Event_VSRoundStart);
-	HookEvent("round_end", 				Event_RoundEnd);
+
+	HookEvent("round_start", Event_RoundStart);
 }
 
 public void OnPluginEnd()
@@ -118,8 +154,14 @@ public void OnPluginEnd()
 	ResetPlugin();
 }
 
+public void OnMapStart()
+{
+	g_bMapStarted = true;
+}
+
 public void OnMapEnd()
 {
+	g_bMapStarted = false;
 	ResetPlugin();
 }
 
@@ -158,6 +200,7 @@ public void ConVarChanged_Cvars(Handle convar, const char[] oldValue, const char
 void GetCvars()
 {
 	g_iCvarDive = g_hCvarDive.IntValue;
+	g_iCvarIncap = g_hCvarIncap.IntValue;
 	g_iCvarDrown = g_hCvarDrown.IntValue;
 	g_fCvarRate = g_hCvarRate.FloatValue;
 	g_fCvarDecayRate = g_hCvarDecayRate.FloatValue;
@@ -196,17 +239,24 @@ bool IsAllowedGameMode()
 	int iCvarModesTog = g_hCvarModesTog.IntValue;
 	if( iCvarModesTog != 0 )
 	{
+		if( g_bMapStarted == false )
+			return false;
+
 		g_iCurrentMode = 0;
 
 		int entity = CreateEntityByName("info_gamemode");
-		DispatchSpawn(entity);
-		HookSingleEntityOutput(entity, "OnCoop", OnGamemode, true);
-		HookSingleEntityOutput(entity, "OnSurvival", OnGamemode, true);
-		HookSingleEntityOutput(entity, "OnVersus", OnGamemode, true);
-		HookSingleEntityOutput(entity, "OnScavenge", OnGamemode, true);
-		ActivateEntity(entity);
-		AcceptEntityInput(entity, "PostSpawnActivate");
-		AcceptEntityInput(entity, "Kill");
+		if( IsValidEntity(entity) )
+		{
+			DispatchSpawn(entity);
+			HookSingleEntityOutput(entity, "OnCoop", OnGamemode, true);
+			HookSingleEntityOutput(entity, "OnSurvival", OnGamemode, true);
+			HookSingleEntityOutput(entity, "OnVersus", OnGamemode, true);
+			HookSingleEntityOutput(entity, "OnScavenge", OnGamemode, true);
+			ActivateEntity(entity);
+			AcceptEntityInput(entity, "PostSpawnActivate");
+			if( IsValidEntity(entity) ) // Because sometimes "PostSpawnActivate" seems to kill the ent.
+				RemoveEdict(entity); // Because multiple plugins creating at once, avoid too many duplicate ents in the same frame
+		}
 
 		if( g_iCurrentMode == 0 )
 			return false;
@@ -220,7 +270,7 @@ bool IsAllowedGameMode()
 	Format(sGameMode, sizeof(sGameMode), ",%s,", sGameMode);
 
 	g_hCvarModes.GetString(sGameModes, sizeof(sGameModes));
-	if( strcmp(sGameModes, "") )
+	if( sGameModes[0] )
 	{
 		Format(sGameModes, sizeof(sGameModes), ",%s,", sGameModes);
 		if( StrContains(sGameModes, sGameMode, false) == -1 )
@@ -228,7 +278,7 @@ bool IsAllowedGameMode()
 	}
 
 	g_hCvarModesOff.GetString(sGameModes, sizeof(sGameModes));
-	if( strcmp(sGameModes, "") )
+	if( sGameModes[0] )
 	{
 		Format(sGameModes, sizeof(sGameModes), ",%s,", sGameModes);
 		if( StrContains(sGameModes, sGameMode, false) != -1 )
@@ -257,7 +307,7 @@ public void OnGamemode(const char[] output, int caller, int activator, float del
 // ====================================================================================================
 void HookEvents()
 {
-	HookEvent("round_start",			Event_RoundStart);
+	// HookEvent("round_start",			Event_RoundStart);
 	HookEvent("heal_success",			Event_HealSuccess);
 	HookEvent("revive_success",			Event_ReviveSuccess);
 	HookEvent("player_death",			Event_Unblock);
@@ -278,7 +328,7 @@ void HookEvents()
 
 void UnhookEvents()
 {
-	UnhookEvent("round_start",				Event_RoundStart);
+	// UnhookEvent("round_start",				Event_RoundStart);
 	UnhookEvent("heal_success",				Event_HealSuccess);
 	UnhookEvent("revive_success",			Event_ReviveSuccess);
 	UnhookEvent("player_death",				Event_Unblock);
@@ -299,17 +349,14 @@ void UnhookEvents()
 
 public Action Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 {
+	SetConVarBool(g_hCvarAllow, true);
 	ResetPlugin();
 }
 
-public Action Event_VSRoundStart(Handle event, const char[] name, bool dontBroadcast)
+public Action L4D_OnFirstSurvivorLeftSafeArea(int client)
 {
 	SetConVarBool(g_hCvarAllow, false);
-}
-
-public Action Event_RoundEnd(Handle event, const char[] name, bool dontBroadcast)
-{
-	SetConVarBool(g_hCvarAllow, true);
+	IsAllowed();
 }
 
 public Action Event_BlockUserEnd(Event event, const char[] name, bool dontBroadcast)
@@ -389,13 +436,13 @@ public Action Event_Unblock(Event event, const char[] name, bool dontBroadcast)
 
 public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3], int &weapon)
 {
-	if( g_bCvarAllow && GetClientTeam(client) == 2 && IsPlayerAlive(client) )
+	if( g_bCvarAllow && IsClientInGame(client) && GetClientTeam(client) == 2 && IsPlayerAlive(client) )
 	{
 		int swimming = g_iSwimming[client];
 		int water = GetEntProp(client, Prop_Send, "m_nWaterLevel");
 		g_iWater[client] = water;
 
-		if( water >= 1 )
+		if( water >= 1 && (!g_iCvarIncap || GetEntProp(client, Prop_Send, "m_isIncapacitated", 1) == 0) )
 		{
 			if( water == 1 )
 			{

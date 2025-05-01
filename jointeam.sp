@@ -65,7 +65,7 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_suicide", Suicide_Cmd);
 	RegConsoleCmd("sm_zs", Suicide_Cmd);
 
-	HookEvent("round_start", Event_RoundStart);
+	HookEvent("round_start", Event_RoundStart, EventHookMode_PostNoCopy);
 	HookEvent("map_transition", Event_MapTransition);
 	HookEvent("player_death", Event_PlayerDeath);
 
@@ -718,7 +718,8 @@ public void giveStartingItem(const char strItemName[32])
 
 	for (int client = 1; client <= MaxClients; client++)
 	{
-		if (IsClientInGame(client) && !IsFakeClient(client) && GetClientTeam(client) == 2)
+		bool allowBots = GetConVarBool(hAllowBotSurvivors);
+		if (IsClientInGame(client) && ( allowBots ? true : !IsFakeClient(client) ) && GetClientTeam(client) == 2)
 		{
 			startingItem = CreateEntityByName(strItemName);
 			GetClientAbsOrigin(client, clientOrigin);
