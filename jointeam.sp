@@ -31,8 +31,6 @@ bool isCountDownEnd = false;
 int tankAttackConVarInt[3] = {0, ...};
 float tankAttackConVarFloat = 0.0;
 
-// Handle sdkEndRound;
-
 public Plugin myinfo =
 {
 	name 			= "Jointeam",
@@ -70,22 +68,6 @@ public void OnPluginStart()
 	HookEvent("player_death", Event_PlayerDeath);
 
 	LoadTranslations("smac.phrases");
-
-
-	// Handle g_hGameConf = LoadGameConfigFile("left4dhooks.l4d2");
-	// if(g_hGameConf == INVALID_HANDLE)
-	// {
-	// 	SetFailState("Couldn't find the offsets and signatures file. Please, check that it is installed correctly.");
-	// }
-	// StartPrepSDKCall(SDKCall_Server);
-	// PrepSDKCall_SetFromConf(g_hGameConf, SDKConf_Signature, "CDirectorVersusMode::EndVersusModeRound");
-	// PrepSDKCall_AddParameter(SDKType_CBasePlayer, SDKPass_Pointer);
-	// PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);
-	// sdkEndRound = EndPrepSDKCall();
-	// if(sdkEndRound == INVALID_HANDLE)
-	// {
-	// 	SetFailState("Unable to find the \"CDirectorVersusMode::EndVersusModeRound\" signature, check the file version!");
-	// }
 }
 
 public void OnMapStart()
@@ -234,12 +216,15 @@ public Action Menu_SwitchCharacters(int client)
 
 public int CharactersMenuHandler(Menu menu, MenuAction action, int client, int param)
 {
-	if (!gameStarted && action == MenuAction_Select) {
+	if (gameStarted) return 1;
+	if (action == MenuAction_Select) {
 		char BotName[32];
 		GetMenuItem(menu, param, BotName, sizeof(BotName), _,BotName, sizeof(BotName));
-		ChangeClientTeam(client, 1);
+		ChangeClientTeam(client, TEAM_SPECTATORS);
 		ClientCommand(client, "jointeam 2 %s", BotName);
 	}
+
+	delete menu;
 	return 1;
 }
 
@@ -258,7 +243,7 @@ public Action Spectate_Cmd(int client, int args)
 		EndRound(client);
 		// return Plugin_Handled;
 	}
-	ChangeClientTeam(client, 1);
+	ChangeClientTeam(client, TEAM_SPECTATORS);
 	PrintToChatAll("\x04[AstMod] \x03%N \x01已旁观.", client);
 	return Plugin_Continue;
 }
@@ -397,13 +382,6 @@ public void KickBots()
 
 public void EndRound(int client)
 {
-	// SDKCall(sdkEndRound, client, false);
-	// L4D2_FullRestart();
-	// Handle hMissionFailEvent = CreateEvent("mission_lost");
-	// // Handle hRoundEndEvent = CreateEvent("round_end");
-	// FireEvent(hMissionFailEvent);
-	// // FireEvent(hRoundEndEvent);
-
 	SetConVarInt(FindConVar("director_no_survivor_bots"), 0);
 	CreateTimer(10.0, Timer_SlayBot);
 }

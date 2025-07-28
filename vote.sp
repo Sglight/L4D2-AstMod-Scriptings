@@ -137,9 +137,9 @@ public int VoteMenuHandler(Handle menu, MenuAction action, int client, int itemP
 			ShowVoteMenu(client);
 		}
 	}
-	if (action == MenuAction_End)
+	else if (action == MenuAction_End)
 	{
-		CloseHandle(menu);
+		delete menu;
 	}
 	return 1;
 }
@@ -181,14 +181,15 @@ public int ConfigsMenuHandler(Handle menu, MenuAction action, int client, int it
 			FakeClientCommand(client, sSectionName);
 		}
 	}
-	if (action == MenuAction_End)
+	else if (action == MenuAction_End)
 	{
-		CloseHandle(menu);
+		delete menu;
 	}
-	if (action == MenuAction_Cancel)
+	else if (action == MenuAction_Cancel)
 	{
 		ShowVoteMenu(client);
 	}
+
 	return 1;
 }
 
@@ -227,8 +228,8 @@ public void VoteActionHandler(Handle vote, BuiltinVoteAction action, int param1,
 	{
 		case BuiltinVoteAction_End:
 		{
-			g_hVote = INVALID_HANDLE;
 			CloseHandle(vote);
+			g_hVote = INVALID_HANDLE;
 		}
 		case BuiltinVoteAction_Cancel:
 		{
@@ -295,7 +296,11 @@ void CreateVotekickMenu(int client)
 }
 public int Menu_Voteskick(Handle menu, MenuAction action, int param1, int param2)
 {
-	if (action == MenuAction_Select)
+	if (action == MenuAction_End)
+	{
+		delete menu;
+	}
+	else if (action == MenuAction_Select)
 	{
 		char info[32], name[32];
 		GetMenuItem(menu, param2, info, sizeof(info), _, name, sizeof(name));
