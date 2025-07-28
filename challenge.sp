@@ -29,8 +29,8 @@
 #define M2_WEAPON_SNIPER        1 << 2     // 4
 
 #define WEAPON_SMG              "weapon_smg,weapon_smg_silenced"
-#define WEAPON_SG               "weapon_pumpshotgun,shotgun_chrome"
-#define WEAPON_SNIPER           "weapon_sniper_scout"
+#define WEAPON_SG               "weapon_pumpshotgun,weapon_shotgun_chrome"
+#define WEAPON_SNIPER           "weapon_sniper_scout,weapon_sniper_awp"
 
 char SI_Names[][] =
 {
@@ -77,14 +77,15 @@ ConVar hDmgModifyEnable;
 ConVar hDmgThreshold;
 ConVar hRatioDamage;
 ConVar hFastGetup;
+ConVar hFastUseAction;
 
 public Plugin myinfo =
 {
 	name = "Amethyst Challenge",
 	author = "海洋空氣",
 	description = "Difficulty Controller for Amethyst Mod.",
-	version = "2.2",
-	url = "https://steamcommunity.com/id/larkspur2017/"
+	version = "2.3",
+	url = "https://github.com/Sglight/L4D2-AstMod-Scriptings/"
 };
 
 public void OnPluginStart()
@@ -117,6 +118,7 @@ public void OnPluginStart()
 	hDmgThreshold = CreateConVar("ast_dma_dmg", "12.0", "被控扣血数值");
 	hRatioDamage = CreateConVar("ast_ratio_damage", "0", "按比例扣血开关");
 	hFastGetup = CreateConVar("ast_fast_getup", "1", "快速起身开关");
+	hFastUseAction = CreateConVar("ast_fast_use_action", "1", "快速机关读条");
 
 	RegConsoleCmd("sm_laser", laserCommand, "激光瞄准器开关");
 }
@@ -193,7 +195,7 @@ public Action drawPanel(int client, int first_item)
 	AddMenuItem(menu, "", "玩家特感设定");
 
 	// 6  12
-	AddMenuItem(menu, "", "特感行动设定");
+	AddMenuItem(menu, "", "激光瞄准器设定");
 
 	// 7  13
 	AddMenuItem(menu, "rs", "恢复默认设置");
@@ -225,14 +227,14 @@ public int MenuHandler(Handle menu, MenuAction action, int client, int param)
 	if (action == MenuAction_Select) {
 		switch (param) {
 			case 0: {
-				if (GetClientTeam(client) != TEAM_SURVIVORS) {
-					PrintToChat(client, "\x04[SM] \x01仅限生还者选择!");
+				if ( !IsClientSurvivor(client, true) ) {
+					drawPanel(client, 0);
 					return 1;
 				}
+
 				if (GetConVarBool(hRatioDamage)) {
 					SetConVarBool(hRatioDamage, false);
-				}
-				else {
+				} else {
 					SetConVarBool(hRatioDamage, true);
 				}
 				drawPanel(client, 0);
@@ -247,42 +249,44 @@ public int MenuHandler(Handle menu, MenuAction action, int client, int param)
 				if (GetDifficulty() == 1)
 					Menu_SIDamage(client, false);
 				else {
-					PrintToChat(client, "\x04[SM] \x01当前模式不支持调整特感伤害.");
+					PrintToChat(client, "\x04[AstMod] \x01当前模式不支持调整特感伤害.");
 					drawPanel(client, 0);
 				}
 			}
 			case 4: {
-				if (GetClientTeam(client) != TEAM_SURVIVORS) {
-					PrintToChat(client, "\x04[SM] \x01仅限生还者选择!");
+				if ( !IsClientSurvivor(client, true) ) {
+					drawPanel(client, 0);
 					return 1;
 				}
+
 				if (GetConVarBool(hRehealth)) {
 					SetConVarBool(hRehealth, false);
-					PrintToChatAll("\x04[SM] \x01有人关闭了击杀回血.");
+					PrintToChatAll("\x04[AstMod] \x01有人关闭了击杀回血.");
 				}
 				else {
 					SetConVarBool(hRehealth, true);
-					PrintToChatAll("\x04[SM] \x01有人打开了击杀回血.");
+					PrintToChatAll("\x04[AstMod] \x01有人打开了击杀回血.");
 				}
 				drawPanel(client, 0);
 			} case 5: { // 击杀回备弹
-				if (GetClientTeam(client) != TEAM_SURVIVORS) {
-					PrintToChat(client, "\x04[SM] \x01仅限生还者选择!");
+				if ( !IsClientSurvivor(client, true) ) {
+					drawPanel(client, 0);
 					return 1;
 				}
+				
 				if (GetConVarBool(hReammo)) {
 					SetConVarBool(hReammo, false);
-					PrintToChatAll("\x04[SM] \x01有人关闭了击杀回复备弹.");
+					PrintToChatAll("\x04[AstMod] \x01有人关闭了击杀回复备弹.");
 				}
 				else {
 					SetConVarBool(hReammo, true);
-					PrintToChatAll("\x04[SM] \x01有人打开了击杀回复备弹.");
+					PrintToChatAll("\x04[AstMod] \x01有人打开了击杀回复备弹.");
 				}
 				drawPanel(client, 0);
 			}
-			case 6: {
-				if (GetClientTeam(client) != TEAM_SURVIVORS) {
-					PrintToChat(client, "\x04[SM] \x01仅限生还者选择!");
+			case 6: { // 恢复默认
+				if ( !IsClientSurvivor(client, true) ) {
+					drawPanel(client, 0);
 					return 1;
 				}
 				ResetSettings();
@@ -305,17 +309,17 @@ public int MenuHandler(Handle menu, MenuAction action, int client, int param)
 			case 11: { // 玩家特感
 				Menu_PlayerInfected(client, false);
 			}
-			case 12: { // 特感行动
+			case 12: { // 激光瞄准器
 				// 开、关
-				if (GetClientTeam(client) != TEAM_SURVIVORS) {
-					PrintToChat(client, "\x04[SM] \x01仅限生还者选择!");
+				if ( !IsClientSurvivor(client, true) ) {
+					drawPanel(client, 7);
 					return 1;
 				}
 				Menu_Laser(client, false);
 			}
-			case 13: {
-				if (GetClientTeam(client) != TEAM_SURVIVORS) {
-					PrintToChat(client, "\x04[SM] \x01仅限生还者选择!");
+			case 13: { // 恢复默认
+				if ( !IsClientSurvivor(client, true) ) {
+					drawPanel(client, 7);
 					return 1;
 				}
 				ResetSettings();
@@ -324,6 +328,8 @@ public int MenuHandler(Handle menu, MenuAction action, int client, int param)
 				drawPanel(client, 7);
 			}
 		}
+	} else if (action == MenuAction_End) {
+		delete menu;
 	}
 	return 1;
 }
@@ -384,17 +390,18 @@ public int Menu_TankDmgHandler(Handle vote, MenuAction action, int client, int p
 		}
 		drawPanel(client, 0);
 	}
-	else if (action == MenuAction_Cancel) drawPanel(client, 0);
+	else if (action == MenuAction_Cancel) {
+		drawPanel(client, 0);
+	}
+
+	delete vote;
 	return 1;
 }
 
 public void TZ_CallVote(int client, int target, int value)
 {
-	if (GetClientTeam(client) != TEAM_SURVIVORS) {
-		PrintToChat(client, "\x04[SM] \x01仅限生还者选择!");
-		return;
-	}
-
+	if ( !IsClientSurvivor(client, true) ) return;
+	
 	if ( IsNewBuiltinVoteAllowed() ) {
 		int iNumPlayers;
 		int iPlayers[MAXPLAYERS];
@@ -709,10 +716,7 @@ public int Menu_SITimerHandler(Handle menu, MenuAction action, int client, int p
 
 public void TZ_CallVoteStr(int client, int target, char[] param1)
 {
-	if (GetClientTeam(client) != TEAM_SURVIVORS) {
-		PrintToChat(client, "\x04[SM] \x01仅限生还者选择!");
-		return;
-	}
+	if (!IsClientSurvivor(client, true)) return;
 
 	if ( IsNewBuiltinVoteAllowed() ) {
 		int iNumPlayers;
@@ -787,6 +791,11 @@ public Action Menu_SIDamage(int client, int args)
 
 public int Menu_SIDamageHandler(Handle menu, MenuAction action, int client, int param)
 {
+	if ( !IsClientSurvivor(client, true) ) {
+		drawPanel(client, 0);
+		return 1;
+	}
+
 	if (action == MenuAction_Select) {
 		switch(param) {
 			case 0:
@@ -1307,15 +1316,15 @@ public void giveAmmo(int client, char[] sPrimaryWeapon, int ammoOffset) {
 	if (StrContains(WEAPON_SMG, sPrimaryWeapon) >= 0) {
 		finalOffset = ammoOffset+(5*4);
 		addAmmo = GetConVarInt(hReammoSMG);
-	} else if ((StrContains(WEAPON_SG, sPrimaryWeapon) >= 0)) {
+	} else if (StrContains(WEAPON_SG, sPrimaryWeapon) >= 0) {
 		finalOffset = ammoOffset+(7*4);
 		addAmmo = GetConVarInt(hReammoSG);
-	} else if ((StrContains(WEAPON_SNIPER, sPrimaryWeapon) >= 0)) {
+	} else if (StrContains(WEAPON_SNIPER, sPrimaryWeapon) >= 0) {
 		finalOffset = ammoOffset+(10*4);
 		addAmmo = GetConVarInt(hReammoSniper);
-	}
-	int ammo = GetEntData(client, finalOffset);
-	SetEntData(client, finalOffset, ammo + addAmmo);
+	} else return;
+	int currentAmmo = GetEntData(client, finalOffset);
+	SetEntData(client, finalOffset, currentAmmo + addAmmo);
 }
 
 // While a Charger is carrying a Survivor, undo any friendly fire done to them
@@ -1365,6 +1374,38 @@ public Action Timer_SetTankConVar(Handle timer, ArrayList cvar)
 	return Plugin_Continue;
 }
 
+public void L4D2_OnStartUseAction_Post(any action, int client, int entity) {
+	if (GetConVarInt(hFastUseAction) < 1) return;
+
+	if (action == L4D2UseAction_Button) {
+		float durationOriginal;
+		float durationNew;
+		int difficulty = GetDifficulty();
+
+		durationOriginal = GetEntPropFloat(client, Prop_Send, "m_flProgressBarDuration", 0);
+
+		switch (difficulty)
+		{
+			case 1: {
+				durationNew = 0.1;
+			}
+			case 2: {
+				durationNew = durationOriginal * 0.25;
+			}
+			case 3: {
+				durationNew = durationOriginal * 0.75;
+			}
+			case 4: {
+				durationNew = durationOriginal;
+			}
+		}
+		// PrintToChat(client, "m_flProgressBarDuration: %f -> %f", durationOriginal, durationNew);
+		DispatchKeyValueFloat(entity, "use_time", durationNew); // 修改机关
+		SetEntPropFloat(client, Prop_Send, "m_flProgressBarDuration", durationNew); // 更改进度条总时长
+	}
+	return;
+}
+
 public void SIDamage(float damage)
 {
 	SetConVarFloat(hDmgThreshold, damage);
@@ -1376,6 +1417,17 @@ stock int GetZombieClass(int client) {
 
 stock bool IsClientAndInGame(int index) {
 	return (index > 0 && index <= MaxClients && IsClientInGame(index));
+}
+
+public bool IsClientSurvivor(int client, bool isMenu) {
+	if ( !IsClientAndInGame(client) ) return false;
+	if (GetClientTeam(client) != TEAM_SURVIVORS) {
+		if (isMenu) {
+			PrintToChat(client, "\x04[AstMod] \x01仅限生还者选择!");
+		}
+		return false;
+	}
+	return true;
 }
 
 public int GetDifficulty() {
