@@ -541,6 +541,7 @@ public Action Timer_KickFakeBot(Handle timer, int fakeclient)
 
 public Action Return_Cmd(int client, int args)
 {
+	if ( gameStarted ) return Plugin_Continue;
 	if ( isSurvivor(client) )
 	{
 		ReturnPlayerToSaferoom(client, false);

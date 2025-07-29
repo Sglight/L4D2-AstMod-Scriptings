@@ -55,7 +55,6 @@ int tempM2HunterFlag = -1;
 int tempMorePills = -1;
 int tempKillMapPills = -1;
 
-bool bIsPouncing[MAXPLAYERS + 1];		  // if a hunter player is currently pouncing
 bool bIsUsingAbility[MAXPLAYERS + 1];
 float fDmgPrint = 0.0;
 int iKillSI[MAXPLAYERS + 1];
@@ -92,10 +91,9 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_tz", challengeRequest, "打开难度控制系统菜单");
 	HookEvent("player_death", OnPlayerDeath, EventHookMode_Post);
 	HookEvent("infected_death", OnInfectedDeath, EventHookMode_Post);
-	HookEvent("ability_use", OnAbilityUse, EventHookMode_Post);
-	HookEvent("player_shoved", OnPlayerShoved, EventHookMode_Post);
 	HookEvent("player_hurt", OnPlayerHurt, EventHookMode_Post);
 	HookEvent("player_team", OnChangeTeam, EventHookMode_Post);
+	HookEvent("tongue_grab", OnTongueGrab);
 	HookEvent("tongue_release", OnTongueRelease);
 	HookEvent("tongue_broke_bent", OnTongueRelease);
 	HookEvent("tongue_pull_stopped", OnTonguePullStopped);
@@ -1102,53 +1100,9 @@ public int Menu_LaserHandler(Handle menu, MenuAction action, int client, int par
 ///////////////////////////
 //           Event           //
 //////////////////////////
-
-public void OnAbilityUse(Handle event, const char[] name, bool dontBroadcast)
-{
-	// track hunters pouncing
-	int userId = GetEventInt(event, "userid");
-	int user = GetClientOfUserId(userId);
-	char abilityName[64];
-
-	GetEventString(event,"ability",abilityName,sizeof(abilityName));
-
-	if( IsClientAndInGame(user) )
-	{
-		if ( StrEqual(abilityName,"ability_lunge",false) && !bIsPouncing[user] ) {
-			bIsPouncing[user] = true;
-			CreateTimer(0.1, groundTouchTimer, user, TIMER_REPEAT);
-		}
-		if ( StrEqual(abilityName, "ability_tongue", false) && !bIsUsingAbility[user] ) {
-			bIsUsingAbility[user] = true;
-			CreateTimer(2.0, Timer_ResetTongue, user);
-		}
-	}
-}
-
-public Action groundTouchTimer(Handle timer, int client)
-{
-	if( IsClientAndInGame(client) && ( isGrounded(client) || !IsPlayerAlive(client) ) ) {
-		// Reached the ground or died in mid-air
-		bIsPouncing[client] = false;
-		KillTimer(timer);
-	}
-	return Plugin_Continue;
-}
-
 public bool isGrounded(int client)
 {
 	return (GetEntProp(client,Prop_Data,"m_fFlags") & FL_ONGROUND) > 0;
-}
-
-public void OnPlayerShoved(Handle event, const char[] name, bool dontBroadcast)
-{
-	// get hunter player
-	int victimId = GetEventInt(event, "userId");
-	int victim = GetClientOfUserId(victimId);
-
-	if(bIsPouncing[victim]) {
-		bIsPouncing[victim] = false;
-	}
 }
 
 public Action Timer_ResetTongue(Handle timer, int client)
@@ -1157,11 +1111,20 @@ public Action Timer_ResetTongue(Handle timer, int client)
 	return Plugin_Continue;
 }
 
+public Action OnTongueGrab(Handle event, const char[] name, bool dontBroadcast)
+{
+	int smoker = GetClientOfUserId(GetEventInt(event, "userid"));
+	if (isInfected(smoker) && GetZombieClass(smoker) == ZC_SMOKER) {
+		bIsUsingAbility[smoker] = true;
+	}
+	return Plugin_Continue;
+}
+
 public Action OnTongueRelease(Handle event, const char[] name, bool dontBroadcast)
 {
-	int client = GetClientOfUserId(GetEventInt(event, "userid"));
-	if (isInfected(client) && GetZombieClass(client) == ZC_SMOKER)
-		bIsUsingAbility[client] = false;
+	int smoker = GetClientOfUserId(GetEventInt(event, "userid"));
+	if (isInfected(smoker) && GetZombieClass(smoker) == ZC_SMOKER)
+		bIsUsingAbility[smoker] = false;
 	return Plugin_Continue;
 }
 
@@ -1240,12 +1203,12 @@ public Action OnPlayerDeath(Handle event, const char[] name, bool dontBroadcast)
 				StrEqual(weapon, "sniper_scout", false) ) {
 					addHP++;
 				}
-				if (bIsPouncing[victim]) addHP++;
-				bIsPouncing[victim] = false;
+				if (!isGrounded(victim)) addHP++;
 			}
 			case 4: {}		// Spitter
 			case 5: { 			// Jockey
 				addHP++;
+				if (!isGrounded(victim)) addHP++;
 			}
 			case 6: { 			// Charger
 				addHP++;
@@ -1271,6 +1234,7 @@ public Action OnPlayerDeath(Handle event, const char[] name, bool dontBroadcast)
 	// 击杀回复备弹，打开开关才开始计数
 	if (GetConVarBool(hReammo)) {
 		int iPrimaryWeaponId = GetPlayerWeaponSlot(attacker, 0);
+		if (iPrimaryWeaponId == -1) return Plugin_Handled; // 无主武器
 		char sPrimaryWeapon[32];
 		GetEdictClassname(iPrimaryWeaponId, sPrimaryWeapon, sizeof(sPrimaryWeapon));
 
@@ -1439,8 +1403,9 @@ public bool IsClientSurvivor(int client, bool isMenu) {
 }
 
 public int GetDifficulty() {
-	int difficulty = GetConVarInt(FindConVar("das_fakedifficulty"));
-	return difficulty;
+	ConVar cDifficulty = FindConVar("das_fakedifficulty");
+	if (cDifficulty == null) return 4;
+	return GetConVarInt(cDifficulty);
 }
 
 public void BypassAndExecuteCommand(int client, char[] strCommand, char[] strParam1)
