@@ -390,8 +390,6 @@ public int Menu_TankDmgHandler(Handle vote, MenuAction action, int client, int p
 	else if (action == MenuAction_Cancel) {
 		drawPanel(client, 0);
 	}
-
-	delete vote;
 	return 1;
 }
 

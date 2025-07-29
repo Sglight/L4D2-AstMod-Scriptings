@@ -19,7 +19,8 @@ ConVar
 	hHumanTankHp, 
 	hAllowBotSurvivors,
 	hSMACWelcome,
-	hSaveWeapons;
+	hSaveWeapons,
+	hSlayBotTime;
 
 bool gameStarted;
 
@@ -49,6 +50,7 @@ public void OnPluginStart()
 	hAllowBotSurvivors = CreateConVar("ast_allowbotsurvivors", "0", "是否允许生还者 bot 存在");
 	hSMACWelcome = CreateConVar("ast_smacwelcome", "0", "是否伪装 SMAC 欢迎信息");
 	hSaveWeapons = CreateConVar("ast_saveweapons", "0", "关底是否保留武器");
+	hSlayBotTime = CreateConVar("ast_endroundslay_time", "10.0", "当最后一位生还跑路时处死 Bot 的等待时间");
 
 	RegConsoleCmd("sm_join", JoinTeam_Cmd, "Moves you to the survivor team");
 	RegConsoleCmd("sm_joingame", JoinTeam_Cmd, "Moves you to the survivor team");
@@ -223,8 +225,6 @@ public int CharactersMenuHandler(Menu menu, MenuAction action, int client, int p
 		ChangeClientTeam(client, TEAM_SPECTATORS);
 		ClientCommand(client, "jointeam 2 %s", BotName);
 	}
-
-	delete menu;
 	return 1;
 }
 
@@ -383,7 +383,7 @@ public void KickBots()
 public void EndRound(int client)
 {
 	SetConVarInt(FindConVar("director_no_survivor_bots"), 0);
-	CreateTimer(10.0, Timer_SlayBot);
+	CreateTimer(GetConVarFloat(hSlayBotTime), Timer_SlayBot);
 }
 
 public Action Timer_SlayBot(Handle timer)
