@@ -5,7 +5,6 @@
 #include <sdktools>
 #include <builtinvotes>
 #include <sdkhooks>
-#include <l4d2_skill_detect>
 #include <left4dhooks>
 #include <colors>
 
@@ -1166,24 +1165,33 @@ public Action OnTongueRelease(Handle event, const char[] name, bool dontBroadcas
 	return Plugin_Continue;
 }
 
+// smoker tongue cutting & self clears
+// Called when a smoker tongue is cleared on a dragging player. Includes cuts.
 public Action OnTonguePullStopped(Handle event, const char[] name, bool dontBroadcast)
 {
-	int smoker = GetClientOfUserId(GetEventInt(event, "smoker"));
-	if (isInfected(smoker) && GetZombieClass(smoker) == ZC_SMOKER)
-		bIsUsingAbility[smoker] = false;
-	return Plugin_Continue;
-}
+	int attacker = GetClientOfUserId(GetEventInt(event, "userid"));
+	int victim	 = GetClientOfUserId(GetEventInt(event, "victim"));
+	int smoker	 = GetClientOfUserId(GetEventInt(event, "smoker"));
+	int reason	 = GetEventInt(event, "release_type");
+	// 1: smoker got shoved
+	// 2: survivor got shoved
+	// 3: smoker got killed
+	// 4: tongue cut
 
-public void OnTongueCut(int survivor, int smoker)
-{
-	if ( GetConVarBool(hDmgModifyEnable) ) {
+	if (!IsClientSurvivor(attacker, false) || !isInfected(smoker) || attacker != victim)
+		return Plugin_Continue;
+	
+	if ( reason == 4 && GetConVarBool(hDmgModifyEnable) ) {
 		ForcePlayerSuicide(smoker);
 
 		char weapon[32];
-		GetClientWeapon(survivor, weapon, sizeof(weapon));
+		GetClientWeapon(attacker, weapon, sizeof(weapon));
 		ReplaceString(weapon, sizeof(weapon), "weapon_", "", false);
-		SendDeathMessage(survivor, smoker, weapon, true);
+		SendDeathMessage(attacker, smoker, weapon, true);
 	}
+	
+	bIsUsingAbility[smoker] = false;
+	return Plugin_Continue;
 }
 
 void SendDeathMessage(int attacker, int victim, const char[] weapon, bool headshot)
@@ -1474,7 +1482,7 @@ public Action OnTakeDamage(int victim, int& attacker, int& inflictor, float& dam
 	if ( !IsClientAndInGame(victim) || !IsClientAndInGame(attacker) ) return Plugin_Continue;
 
 	if (GetClientTeam(victim) == TEAM_INFECTED && GetZombieClass(victim) == ZC_SMOKER && bIsUsingAbility[victim]) { // 秒舌头
-		damage = 250.0;
+		damage = GetConVarFloat(FindConVar("z_gas_health"));
 		return Plugin_Changed;
 	}
 	if ( GetClientTeam(attacker) == TEAM_INFECTED &&
