@@ -54,6 +54,9 @@ int tempPlayerTank = -1;
 int tempM2HunterFlag = -1;
 int tempMorePills = -1;
 int tempKillMapPills = -1;
+int tempWaveSpawnEnabled = -1;
+float tempSITimerNew = -1.0;
+int tempSILimitNew = -1;
 
 bool bIsUsingAbility[MAXPLAYERS + 1];
 float fDmgPrint = 0.0;
@@ -69,6 +72,8 @@ ConVar hReammoSMG;
 ConVar hReammoSniper;
 
 ConVar hSITimer;
+ConVar hSITimerNew;
+ConVar hSILimitNew;
 Handle g_hVote;
 
 ConVar hDmgModifyEnable;
@@ -76,13 +81,14 @@ ConVar hDmgThreshold;
 ConVar hRatioDamage;
 ConVar hFastGetup;
 ConVar hFastUseAction;
+ConVar hWaveSpawnEnabled;
 
 public Plugin myinfo =
 {
 	name = "Amethyst Challenge",
 	author = "海洋空氣",
 	description = "Difficulty Controller for Amethyst Mod.",
-	version = "2.3",
+	version = "2.4",
 	url = "https://github.com/Sglight/L4D2-AstMod-Scriptings/"
 };
 
@@ -103,21 +109,32 @@ public void OnPluginStart()
 	HookEvent("charger_carry_start", Event_ChargerCarryStart, EventHookMode_Post);
 	HookEvent("charger_pummel_start", Event_ChargerPummelStart, EventHookMode_Post);
 
-	hRehealth = CreateConVar("ast_rehealth",       "0", "击杀特感回血开关");
-	hReammo = CreateConVar("ast_reammo",       "0", "击杀回复备弹开关");
-	hReammoSI = CreateConVar("ast_reammo_SI",       "10", "回复备弹所需的特感击杀数");
-	hReammoCI = CreateConVar("ast_reammo_CI",       "25", "回复备弹所需的小僵尸击杀数");
-	hReammoSG = CreateConVar("ast_reammo_count_SG",       "8", "霰弹枪回复备弹数量");
-	hReammoSMG = CreateConVar("ast_reammo_count_SMG",       "100", "冲锋枪回复备弹数量");
-	hReammoSniper = CreateConVar("ast_reammo_count_Sniper",       "15", "狙击枪回复备弹数量");
-	hSITimer = CreateConVar("ast_sitimer",       "1", "特感刷新速率");
-	hDmgModifyEnable = CreateConVar("ast_dmgmodify", "1", "伤害修改总开关");
-	hDmgThreshold = CreateConVar("ast_dma_dmg", "12.0", "被控扣血数值");
-	hRatioDamage = CreateConVar("ast_ratio_damage", "0", "按比例扣血开关");
-	hFastGetup = CreateConVar("ast_fast_getup", "1", "快速起身开关");
-	hFastUseAction = CreateConVar("ast_fast_use_action", "1", "快速机关读条");
+	hRehealth = CreateConVar("ast_rehealth",					"0", "击杀特感回血开关", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	hReammo = CreateConVar("ast_reammo",						"0", "击杀回复备弹开关", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	hReammoSI = CreateConVar("ast_reammo_SI",					"10", "回复备弹所需的特感击杀数", FCVAR_NOTIFY, true, 1.0);
+	hReammoCI = CreateConVar("ast_reammo_CI",					"25", "回复备弹所需的小僵尸击杀数", FCVAR_NOTIFY, true, 1.0);
+	hReammoSG = CreateConVar("ast_reammo_count_SG",				"8", "霰弹枪回复备弹数量", FCVAR_NOTIFY, true, 1.0);
+	hReammoSMG = CreateConVar("ast_reammo_count_SMG",			"100", "冲锋枪回复备弹数量", FCVAR_NOTIFY, true, 1.0);
+	hReammoSniper = CreateConVar("ast_reammo_count_Sniper",		"15", "狙击枪回复备弹数量", FCVAR_NOTIFY, true, 1.0);
+
+	hSITimer = CreateConVar("ast_sitimer",						"1", "特感刷新速率（旧版）", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	hWaveSpawnEnabled = CreateConVar("ast_wave_spawn",			"1", "新版特感生成机制开关", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	hSITimerNew = CreateConVar("ast_sitimer_new",				"8", "特感刷新时间（新版，直接刷新控制时间）", FCVAR_NOTIFY, true, 0.0, true, 100.0);
+	hSILimitNew = CreateConVar("ast_silimit_new",				"3", "特感刷新数量（新版，一波特感数量）", FCVAR_NOTIFY, true, 0.0, true, 32.0);
+	
+	hDmgModifyEnable = CreateConVar("ast_dmgmodify",			"1", "伤害修改总开关", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	hDmgThreshold = CreateConVar("ast_dma_dmg",					"12.0", "被控扣血数值", FCVAR_NOTIFY, true, 1.0, true, 100.0);
+	hRatioDamage = CreateConVar("ast_ratio_damage",				"0", "按比例扣血开关", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	hFastGetup = CreateConVar("ast_fast_getup",					"1", "快速起身开关", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	hFastUseAction = CreateConVar("ast_fast_use_action",		"1", "快速机关读条", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 
 	RegConsoleCmd("sm_laser", laserCommand, "激光瞄准器开关");
+	RegConsoleCmd("sm_si", NewSITimerCommand, "新版特感刷新速率调节，无极调节");
+
+	HookConVarChange(hSITimer, ReloadVScript);
+	HookConVarChange(hSITimerNew, ReloadVScript);
+	HookConVarChange(hSILimitNew, ReloadVScript);
+	HookConVarChange(hWaveSpawnEnabled, ReloadVScript);
 }
 
 public Action OnRoundStart(Handle event, const char[] name, bool dontBroadcast)
@@ -127,6 +144,15 @@ public Action OnRoundStart(Handle event, const char[] name, bool dontBroadcast)
 		iKillCI[i] = 0;
 	}
 	return Plugin_Handled;
+}
+
+public Action L4D_OnFirstSurvivorLeftSafeArea(int client)
+{
+	// 出门输出特感刷新参数
+	float fTimerCurrent = GetConVarFloat(hSITimerNew);
+	int iLimitCurrent = GetConVarInt(hSILimitNew);
+	PrintToChatAll("\x04[AstMod] \x01当前刷新速率：\x03%.1f秒%i特\x01.", fTimerCurrent, iLimitCurrent);
+	return Plugin_Continue;
 }
 
 public Action challengeRequest(int client, int args)
@@ -146,10 +172,9 @@ public Action drawPanel(int client, int first_item)
 	SetMenuExitButton(menu, true);
 
 	// 1  0
-	if (GetConVarBool(hRatioDamage))
-		Format(buffer, sizeof(buffer), "按特感血量扣血 [已启用]");
-	else Format(buffer, sizeof(buffer), "按特感血量扣血");
-	AddMenuItem(menu, "hp", buffer);
+	// FormatEx(buffer, sizeof(buffer), "按特感血量扣血%s", GetConVarBool(hRatioDamage) ? " [已启用]" : "");
+	// AddMenuItem(menu, "hp", buffer);
+	AddToggleMenuItem(menu, "按特感血量扣血", GetConVarBool(hRatioDamage));
 
 	// 2  1
 	Format(buffer, sizeof(buffer), "修改 Tank 伤害 [%i]", GetConVarInt(FindConVar("vs_tank_damage")));
@@ -163,14 +188,10 @@ public Action drawPanel(int client, int first_item)
 	AddMenuItem(menu, "sd", buffer);
 
 	// 5  4
-	if (GetConVarBool(hRehealth))
-		AddMenuItem(menu, "rh", "击杀特感回血 [已启用]");
-	else AddMenuItem(menu, "rh", "击杀特感回血");
+	AddToggleMenuItem(menu, "击杀特感回血", GetConVarBool(hRehealth));
 
 	// 6  5
-	if (GetConVarBool(hReammo))
-		AddMenuItem(menu, "", "击杀回复备弹 [已启用]");
-	else AddMenuItem(menu, "", "击杀回复备弹");
+	AddToggleMenuItem(menu, "击杀回复备弹", GetConVarBool(hReammo));
 
 	// 7  6
 	AddMenuItem(menu, "rs", "恢复默认设置");
@@ -201,6 +222,10 @@ public Action drawPanel(int client, int first_item)
 	DisplayMenuAtItem(menu, client, first_item, MENU_DISPLAY_TIME);
 
 	// 清除已选未投票状态
+	if (FindConVar("weapon_allow_m2_hunter") == null) {
+		PrintToChat(client, "\x04[AstMod] \x05l4d2_hunter_no_deadstops.smx \x01插件未安装，请联系管理员.");
+		return Plugin_Handled;
+	}
 	ConVar hM2HunterWeapon = FindConVar("weapon_allow_m2_hunter");
 	char sM2HunterWeapon[256];
 	GetConVarString(hM2HunterWeapon, sM2HunterWeapon, sizeof(sM2HunterWeapon));
@@ -224,16 +249,11 @@ public int MenuHandler(Handle menu, MenuAction action, int client, int param)
 	if (action == MenuAction_Select) {
 		switch (param) {
 			case 0: {
-				if ( !IsClientSurvivor(client, true) ) {
+				if ( !IsClientSurvivor(client, true) || GetDifficulty() != 1) {
 					drawPanel(client, 0);
 					return 1;
 				}
-
-				if (GetConVarBool(hRatioDamage)) {
-					SetConVarBool(hRatioDamage, false);
-				} else {
-					SetConVarBool(hRatioDamage, true);
-				}
+				SetConVarBool(hRatioDamage, !GetConVarBool(hRatioDamage));
 				drawPanel(client, 0);
 			}
 			case 1: {
@@ -256,39 +276,27 @@ public int MenuHandler(Handle menu, MenuAction action, int client, int param)
 					return 1;
 				}
 
-				if (GetConVarBool(hRehealth)) {
-					SetConVarBool(hRehealth, false);
-					PrintToChatAll("\x04[AstMod] \x01有人关闭了击杀回血.");
-				}
-				else {
-					SetConVarBool(hRehealth, true);
-					PrintToChatAll("\x04[AstMod] \x01有人打开了击杀回血.");
-				}
+				bool enabled = GetConVarBool(hRehealth);
+				SetConVarBool(hRehealth, !enabled);
+				PrintToChatAll("\x04[AstMod] \x01有人\x03%s\x01了击杀回血.", enabled ? "关闭" : "打开");
+
 				drawPanel(client, 0);
 			} case 5: { // 击杀回备弹
 				if ( !IsClientSurvivor(client, true) ) {
 					drawPanel(client, 0);
 					return 1;
 				}
-				
-				if (GetConVarBool(hReammo)) {
-					SetConVarBool(hReammo, false);
-					PrintToChatAll("\x04[AstMod] \x01有人关闭了击杀回复备弹.");
-				}
-				else {
-					SetConVarBool(hReammo, true);
-					PrintToChatAll("\x04[AstMod] \x01有人打开了击杀回复备弹.");
-				}
+
+				bool enabled = GetConVarBool(hReammo);
+				SetConVarBool(hReammo, !enabled);
+				PrintToChatAll("\x04[AstMod] \x01有人\x03%s\x01了击杀回复备弹.", enabled ? "关闭" : "打开");
+
 				drawPanel(client, 0);
 			}
 			case 6: { // 恢复默认
-				if ( !IsClientSurvivor(client, true) ) {
-					drawPanel(client, 0);
-					return 1;
+				if ( IsClientSurvivor(client, true) ) {
+					ResetSettings();
 				}
-				ResetSettings();
-				if (GetDifficulty() == 1)
-					SIDamage(12.0);
 				drawPanel(client, 0);
 			}
 			case 7: { // 自动发药
@@ -315,14 +323,10 @@ public int MenuHandler(Handle menu, MenuAction action, int client, int param)
 				Menu_Laser(client, false);
 			}
 			case 13: { // 恢复默认
-				if ( !IsClientSurvivor(client, true) ) {
-					drawPanel(client, 7);
-					return 1;
+				if ( IsClientSurvivor(client, true) ) {
+					ResetSettings();
 				}
-				ResetSettings();
-				if (GetDifficulty() == 1)
-					SIDamage(12.0);
-				drawPanel(client, 7);
+				drawPanel(client, 0);
 			}
 		}
 	} else if (action == MenuAction_End) {
@@ -331,67 +335,48 @@ public int MenuHandler(Handle menu, MenuAction action, int client, int param)
 	return 1;
 }
 
+int g_tankDamages[] = {24, 36, 48, 100};
+
 public Action Menu_TankDmg(int client, int args)
 {
 	Handle menu = CreateMenu(Menu_TankDmgHandler);
 	SetMenuTitle(menu, "修改 tank 伤害");
 	SetMenuExitBackButton(menu, true);
-	int tankdmg = GetConVarInt(FindConVar("vs_tank_damage"));
-	switch (tankdmg)
+
+	int currentDmg = GetConVarInt(FindConVar("vs_tank_damage"));
+
+	for (int i = 0; i < sizeof(g_tankDamages); i++)
 	{
-		case 24:{
-			AddMenuItem(menu, "tf", "✔24");
-			AddMenuItem(menu, "ts", "36");
-			AddMenuItem(menu, "fe", "48");
-			AddMenuItem(menu, "oh", "100");
-		}
-		case 36:{
-			AddMenuItem(menu, "tf", "24");
-			AddMenuItem(menu, "ts", "✔36");
-			AddMenuItem(menu, "fe", "48");
-			AddMenuItem(menu, "oh", "100");
-		}
-		case 48:{
-			AddMenuItem(menu, "tf", "24");
-			AddMenuItem(menu, "ts", "36");
-			AddMenuItem(menu, "fe", "✔48");
-			AddMenuItem(menu, "oh", "100");
-		}
-		case 100:{
-			AddMenuItem(menu, "tf", "24");
-			AddMenuItem(menu, "ts", "36");
-			AddMenuItem(menu, "fe", "48");
-			AddMenuItem(menu, "oh", "✔100");
-		}
+		char label[16];
+		Format(label, sizeof(label), "%s%d", (currentDmg == g_tankDamages[i]) ? "✔" : "", g_tankDamages[i]);
+		
+		char info[4];
+		IntToString(i, info, sizeof(info));  // 用索引作为 info
+
+		AddMenuItem(menu, info, label);
 	}
+
 	DisplayMenu(menu, client, MENU_DISPLAY_TIME);
 	return Plugin_Handled;
 }
 
-public int Menu_TankDmgHandler(Handle vote, MenuAction action, int client, int param)
+public int Menu_TankDmgHandler(Handle menu, MenuAction action, int client, int param)
 {
-	if (action == MenuAction_Select) {
-		switch (param) {
-			case 0: {
-				TZ_CallVote(client, 1, 24);
-			}
-			case 1: {
-				TZ_CallVote(client, 1, 36);
-			}
-			case 2: {
-				TZ_CallVote(client, 1, 48);
-			}
-			case 3: {
-				TZ_CallVote(client, 1, 100);
-			}
+	if (action == MenuAction_Select)
+	{
+		if (0 <= param < sizeof(g_tankDamages))
+		{
+			TZ_CallVote(client, 1, g_tankDamages[param]);
 		}
 		drawPanel(client, 0);
 	}
-	else if (action == MenuAction_Cancel) {
+	else if (action == MenuAction_Cancel)
+	{
 		drawPanel(client, 0);
 	}
 	return 1;
 }
+
 
 public void TZ_CallVote(int client, int target, int value)
 {
@@ -436,7 +421,7 @@ public void TZ_CallVote(int client, int target, int value)
 				SetBuiltinVoteResultCallback(g_hVote, PlayerInfectedVoteResultHandler);
 			}
 			case 5: { // 玩家 Tank
-				value ? Format(sBuffer, sizeof(sBuffer), "禁止玩家扮演 Tank") : Format(sBuffer, sizeof(sBuffer), "允许玩家扮演 Tank");
+				value ? Format(sBuffer, sizeof(sBuffer), "允许玩家扮演 Tank") : Format(sBuffer, sizeof(sBuffer), "禁止玩家扮演 Tank");
 				tempPlayerTank = value;
 				SetBuiltinVoteResultCallback(g_hVote, PlayerTankVoteResultHandler);
 			}
@@ -467,6 +452,10 @@ public void TZ_CallVote(int client, int target, int value)
 				value ? Format(sBuffer, sizeof(sBuffer), "删除地图药（下回合生效）") : Format(sBuffer, sizeof(sBuffer), "保留地图药（下回合生效）");
 				tempKillMapPills = value;
 				SetBuiltinVoteResultCallback(g_hVote, KillMapPillsVoteResultHandler);
+			}
+			case 9: { // 新版特感速率
+				Format(sBuffer, sizeof(sBuffer), "修改特感刷新速度为 [%.1f秒%i特]", tempSITimerNew, tempSILimitNew);
+				SetBuiltinVoteResultCallback(g_hVote, SITimerNewVoteResultHandler);
 			}
 		}
 
@@ -567,15 +556,25 @@ public void M2HunterVoteResultHandler(Handle vote, int num_votes, int num_client
 				DisplayBuiltinVotePass(vote, "正在修改推 Hunter 设定 ...");
 
 				char sBuffer[256];
+				sBuffer[0] = '\0'; // 初始化为空字符串
 
-				if (tempM2HunterFlag & 1) {
-					Format(sBuffer, sizeof(sBuffer), "%s%s,", sBuffer, WEAPON_SMG);
+				if (tempM2HunterFlag & M2_WEAPON_SMG) {
+					StrCat(sBuffer, sizeof(sBuffer), WEAPON_SMG);
+					StrCat(sBuffer, sizeof(sBuffer), ",");
 				}
-				if (tempM2HunterFlag & 2) {
-					Format(sBuffer, sizeof(sBuffer), "%s%s,", sBuffer, WEAPON_SG);
+				if (tempM2HunterFlag & M2_WEAPON_SHOTGUN) {
+					StrCat(sBuffer, sizeof(sBuffer), WEAPON_SG);
+					StrCat(sBuffer, sizeof(sBuffer), ",");
 				}
-				if (tempM2HunterFlag & 4) {
-					Format(sBuffer, sizeof(sBuffer), "%s%s,", sBuffer, WEAPON_SNIPER);
+				if (tempM2HunterFlag & M2_WEAPON_SNIPER) {
+					StrCat(sBuffer, sizeof(sBuffer), WEAPON_SNIPER);
+					StrCat(sBuffer, sizeof(sBuffer), ",");
+				}
+
+				// 去掉最后一个逗号（如果存在）
+				int len = strlen(sBuffer);
+				if (len > 0 && sBuffer[len - 1] == ',') {
+					sBuffer[len - 1] = '\0';
 				}
 
 				SetConVarString(FindConVar("weapon_allow_m2_hunter"), sBuffer);
@@ -612,9 +611,27 @@ public void KillMapPillsVoteResultHandler(Handle vote, int num_votes, int num_cl
 			if (item_info[i][BUILTINVOTEINFO_ITEM_VOTES] > (num_votes / 2)) {
 				char sBuffer[64];
 				tempKillMapPills == 0 ? Format(sBuffer, sizeof(sBuffer), "保留") : Format(sBuffer, sizeof(sBuffer), "删除");
-				Format(sBuffer, sizeof(sBuffer), "已设置为 %s 地图药", sBuffer);
+				Format(sBuffer, sizeof(sBuffer), "已设置为 %s 地图药，下回合生效", sBuffer);
 				DisplayBuiltinVotePass(vote, sBuffer);
 				SetConVarInt(FindConVar("ast_pills_map_kill"), tempKillMapPills);
+				return;
+			}
+		}
+	}
+	DisplayBuiltinVoteFail(vote, BuiltinVoteFail_Loses);
+	return;
+}
+
+public void SITimerNewVoteResultHandler(Handle vote, int num_votes, int num_clients, const int[][] client_info, int num_items, const int[][] item_info)
+{
+	for (int i = 0; i < num_items; i++) {
+		if (item_info[i][BUILTINVOTEINFO_ITEM_INDEX] == BUILTINVOTES_VOTE_YES) {
+			if (item_info[i][BUILTINVOTEINFO_ITEM_VOTES] > (num_votes / 2)) {
+				char sBuffer[64];
+				Format(sBuffer, sizeof(sBuffer), "修改特感刷新速度为 [%.1f秒%i特]", tempSITimerNew, tempSILimitNew);
+				DisplayBuiltinVotePass(vote, sBuffer);
+				SetConVarFloat(hSITimerNew, tempSITimerNew);
+				SetConVarInt(hSILimitNew, tempSILimitNew);
 				return;
 			}
 		}
@@ -639,39 +656,40 @@ public void VoteHandler(Handle vote, BuiltinVoteAction action, int param1, int p
 	return;
 }
 
+
+static const char timerOptions[4][] = {
+	"较慢", "默认", "较快", "特感速递！"
+};
+
 public Action Menu_SITimer(int client, int args)
 {
 	Handle menu = CreateMenu(Menu_SITimerHandler);
-	SetMenuTitle(menu, "修改特感刷新速度");
-	SetMenuExitBackButton(menu, true);
-	int SITimer = GetConVarInt(hSITimer);
-	switch (SITimer)
-	{
-		case 0: {
-			AddMenuItem(menu, "", "✔较慢");
-			AddMenuItem(menu, "", "默认");
-			AddMenuItem(menu, "", "较快");
-			AddMenuItem(menu, "", "特感速递？");
-		}
-		case 1: {
-			AddMenuItem(menu, "", "较慢");
-			AddMenuItem(menu, "", "✔默认");
-			AddMenuItem(menu, "", "较快");
-			AddMenuItem(menu, "", "特感速递？");
-		}
-		case 2: {
-			AddMenuItem(menu, "", "较慢");
-			AddMenuItem(menu, "", "默认");
-			AddMenuItem(menu, "", "✔较快");
-			AddMenuItem(menu, "", "特感速递？");
-		}
-		case 3: {
-			AddMenuItem(menu, "", "较慢");
-			AddMenuItem(menu, "", "默认");
-			AddMenuItem(menu, "", "较快");
-			AddMenuItem(menu, "", "✔特感速递？");
-		}
+	bool bWaveSpawnEnabled = GetConVarBool(hWaveSpawnEnabled);
+	
+	if (bWaveSpawnEnabled) {
+		float fTimerCurrent = GetConVarFloat(hSITimerNew);
+		int iLimitCurrent = GetConVarInt(hSILimitNew);
+		SetMenuTitle(menu, "当前刷新速率：%.1f秒%i特", fTimerCurrent, iLimitCurrent);
+	} else {
+		SetMenuTitle(menu, "修改特感刷新速度");
 	}
+	SetMenuExitBackButton(menu, true);
+
+	for (int i = 0; i < sizeof(timerOptions); i++)
+	{
+		char sBuffer[64];
+		int SITimer = GetConVarInt(hSITimer);
+		if (i == SITimer && !bWaveSpawnEnabled) {
+			Format(sBuffer, sizeof(sBuffer), "✔%s", timerOptions[i]);
+		} else {
+			strcopy(sBuffer, sizeof(sBuffer), timerOptions[i]);
+		}
+		AddMenuItem(menu, "", sBuffer);
+	}
+
+	AddToggleMenuItem(menu, "新版刷特", bWaveSpawnEnabled);
+	AddToggleMenuItem(menu, "旧版刷特", !bWaveSpawnEnabled);
+
 	DisplayMenu(menu, client, MENU_DISPLAY_TIME);
 	return Plugin_Handled;
 }
@@ -680,32 +698,30 @@ public int Menu_SITimerHandler(Handle menu, MenuAction action, int client, int p
 {
 	if (action == MenuAction_Select) {
 		char buffer[64];
-		switch (param)
-		{
-			case 0: {
-				tempSITimer = 0;
-				Format(buffer, sizeof(buffer),"较慢");
+
+		// 处理刷新速度选项（仅在旧版刷特下可选）
+		if (param < sizeof(timerOptions)) {
+			if (!GetConVarBool(hWaveSpawnEnabled)) {
+				tempSITimer = param;
+				Format(buffer, sizeof(buffer), "%s", timerOptions[param]);
 				TZ_CallVoteStr(client, 1, buffer);
-			}
-			case 1: {
-				tempSITimer = 1;
-				Format(buffer, sizeof(buffer),"默认");
-				TZ_CallVoteStr(client, 1, buffer);
-			}
-			case 2: {
-				tempSITimer = 2;
-				Format(buffer, sizeof(buffer),"较快");
-				TZ_CallVoteStr(client, 1, buffer);
-			}
-			case 3: {
-				tempSITimer = 3;
-				Format(buffer, sizeof(buffer),"特感速递？");
-				TZ_CallVoteStr(client, 1, buffer);
+			} else {
+				PrintToChat(client, "\x04[AstMod] \x01此选项仅支持旧版刷特机制！请使用 !si 指令.");
 			}
 		}
+		// 处理模式切换（新版 / 旧版 刷特）
+		else if (param > sizeof(timerOptions) - 1) {
+			tempWaveSpawnEnabled = (param == sizeof(timerOptions)) ? 1 : 0;
+			Format(buffer, sizeof(buffer), "%s版刷特", tempWaveSpawnEnabled ? "新" : "旧");
+			TZ_CallVoteStr(client, 2, buffer);
+		}
+
 		drawPanel(client, 0);
 	}
-	else if (action == MenuAction_Cancel) drawPanel(client, 0);
+	else if (action == MenuAction_Cancel) {
+		drawPanel(client, 0);
+	}
+
 	return 1;
 }
 
@@ -732,6 +748,10 @@ public void TZ_CallVoteStr(int client, int target, char[] param1)
 				Format(sBuffer, sizeof(sBuffer), "修改特感刷新速度为 [%s]", param1);
 				SetBuiltinVoteResultCallback(g_hVote, SITimerVoteResultHandler);
 			}
+			case 2: {
+				Format(sBuffer, sizeof(sBuffer), "修改为 [%s]", param1);
+				SetBuiltinVoteResultCallback(g_hVote, WaveSpawnVoteResultHandler);
+			}
 		}
 
 		SetBuiltinVoteArgument(g_hVote, sBuffer);
@@ -748,7 +768,6 @@ public int SITimerVoteResultHandler(Handle vote, int num_votes, int num_clients,
 			if (item_info[i][BUILTINVOTEINFO_ITEM_VOTES] > (num_votes / 2)) {
 				DisplayBuiltinVotePass(vote, "正在更改特感刷新速率...");
 				SetConVarInt(hSITimer, tempSITimer);
-				ServerCommand("sm_reloadscript");
 				return 1;
 			}
 		}
@@ -757,79 +776,134 @@ public int SITimerVoteResultHandler(Handle vote, int num_votes, int num_clients,
 	return 0;
 }
 
+public int WaveSpawnVoteResultHandler(Handle vote, int num_votes, int num_clients, const int[][] client_info, int num_items, const int[][] item_info)
+{
+	for (int i = 0; i < num_items; i++) {
+		if (item_info[i][BUILTINVOTEINFO_ITEM_INDEX] == BUILTINVOTES_VOTE_YES) {
+			if (item_info[i][BUILTINVOTEINFO_ITEM_VOTES] > (num_votes / 2)) {
+				DisplayBuiltinVotePass(vote, "正在更改刷特机制...");
+				SetConVarInt(hWaveSpawnEnabled, tempWaveSpawnEnabled);
+				return 1;
+			}
+		}
+	}
+	DisplayBuiltinVoteFail(vote, BuiltinVoteFail_Loses);
+	return 0;
+}
+
+public Action NewSITimerCommand(int client, int args)
+{
+	if ( !GetConVarBool(hWaveSpawnEnabled) ) {
+		ReplyToCommand(client, "\x04[AstMod] \x01此指令仅支持新版刷特机制！");
+		return Plugin_Handled;
+	}
+
+	if( args != 2 )
+	{
+		// 获取当前设定值
+		float fTimerCurrent = GetConVarFloat(hSITimerNew);
+		int iLimitCurrent = GetConVarInt(hSILimitNew);
+		ReplyToCommand(client, "\x04[AstMod] \x01当前刷新速率：\x03%.1f秒%i特", fTimerCurrent, iLimitCurrent);
+		ReplyToCommand(client, "\x04[AstMod] \x01使用方法: \x3sm_si <刷新时间> <特感数量>\x01，如：\x03!si 7.5 3");
+		return Plugin_Handled;
+	}
+
+	// 发起投票修改
+	char sSITimerNew[8];
+	char sSILimitNew[8];
+	GetCmdArg(1, sSITimerNew, sizeof(sSITimerNew));
+	GetCmdArg(2, sSILimitNew, sizeof(sSILimitNew));
+	tempSITimerNew = StringToFloat(sSITimerNew);
+	tempSILimitNew = StringToInt(sSILimitNew);
+	TZ_CallVote(client, 9, 0);
+
+	return Plugin_Handled;
+}
+
+int SIDamageOptions[] = {8, 12, 24};
+
 public Action Menu_SIDamage(int client, int args)
 {
 	Handle menu = CreateMenu(Menu_SIDamageHandler);
 	int dmg = GetConVarInt(hDmgThreshold);
 	SetMenuTitle(menu, "修改特感基础伤害");
 	SetMenuExitBackButton(menu, true);
-	switch (dmg) {
-		case 8: {
-			AddMenuItem(menu, "", "✔8");
-			AddMenuItem(menu, "", "12");
-			AddMenuItem(menu, "", "24");
-		}
-		case 12: {
-			AddMenuItem(menu, "", "8");
-			AddMenuItem(menu, "", "✔12");
-			AddMenuItem(menu, "", "24");
-		}
-		case 24: {
-			AddMenuItem(menu, "", "8");
-			AddMenuItem(menu, "", "12");
-			AddMenuItem(menu, "", "✔24");
-		}
+
+	char sBuffer[16];
+	for (int i = 0; i < sizeof(SIDamageOptions); i++) {
+		bool selected = (SIDamageOptions[i] == dmg);
+		Format(sBuffer, sizeof(sBuffer), "%i", SIDamageOptions[i]);
+		AddToggleMenuItem(menu, sBuffer, selected);
 	}
+
 	DisplayMenu(menu, client, MENU_DISPLAY_TIME);
 	return Plugin_Handled;
 }
 
 public int Menu_SIDamageHandler(Handle menu, MenuAction action, int client, int param)
 {
-	if ( !IsClientSurvivor(client, true) ) {
+	if (!IsClientSurvivor(client, true)) {
 		drawPanel(client, 0);
 		return 1;
 	}
 
 	if (action == MenuAction_Select) {
-		switch(param) {
-			case 0:
-				SIDamage(8.0);
-			case 1:
-				SIDamage(12.0);
-			case 2:
-				SIDamage(24.0);
-			default:
-				SIDamage(12.0);
-		}
+		if ( param > sizeof(SIDamageOptions) ) return 1;
+		SIDamage(float(SIDamageOptions[param]));
 		drawPanel(client, 0);
-	} else if (action == MenuAction_Cancel) drawPanel(client, 0);
+	} else if (action == MenuAction_Cancel) {
+		drawPanel(client, 0);
+	}
 	return 1;
 }
 
+
 public void ResetSettings()
 {
+	SetConVarBool(hRatioDamage, false);
+	SIDamage(12.0);
 	SetConVarInt(FindConVar("vs_tank_damage"), 24);
-	SetConVarInt(FindConVar("ast_sitimer"), 1);
+	SetConVarInt(hSITimer, 1);
+	SetConVarBool(hWaveSpawnEnabled, true);
 	SetConVarBool(hRehealth, false);
-	ServerCommand("sm_reloadscript");
+	SetConVarBool(hReammo, false);
+
+	if (FindConVar("ast_pills_map_kill") != null) {
+		SetConVarBool(FindConVar("ast_pills_enabled"), true);
+		SetConVarBool(FindConVar("ast_pills_map_kill"), true);
+	}
+	if (FindConVar("weapon_allow_m2_hunter") != null) {
+		SetConVarString(FindConVar("weapon_allow_m2_hunter"), WEAPON_SMG);
+	}
+	if (FindConVar("ast_maxinfected") != null) {
+		SetConVarInt(FindConVar("ast_maxinfected"), 0);
+		SetConVarBool(FindConVar("ast_allowhumantank"), false);
+	}
+
+	ConVar hDifficulty = FindConVar("das_fakedifficulty");
+	if (hDifficulty != null) {
+		int iDifficulty = GetConVarInt(hDifficulty);
+		SetConVarInt(hDifficulty, 0);
+		SetConVarInt(hDifficulty, iDifficulty);
+	}
+	ReloadVScript(null, "", "");
 }
 
 public Action Menu_MorePills(int client, int args)
 {
+	if (FindConVar("ast_pills_map_kill") == null) {
+		PrintToChat(client, "\x04[AstMod] \x05pills_giver.smx \x01插件未安装，请联系管理员.");
+		drawPanel(client, 0);
+		return Plugin_Handled;
+	}
+
 	// 开关，删除地图药
 	Handle menu = CreateMenu(Menu_MorePillsHandler);
 	SetMenuTitle(menu, "额外发药设定");
 	SetMenuExitBackButton(menu, true);
 
-	char sBuffer[32];
-	bool bPillsEnabled = GetConVarBool(FindConVar("ast_pills_enabled"));
-	bPillsEnabled ? Format(sBuffer, sizeof(sBuffer), "✔自动发药") : Format(sBuffer, sizeof(sBuffer), "自动发药");
-	AddMenuItem(menu, "", sBuffer);
-
-	bool bPillsMapKill = GetConVarBool(FindConVar("ast_pills_map_kill"));
-	bPillsMapKill ? Format(sBuffer, sizeof(sBuffer), "✔删除地图药") : Format(sBuffer, sizeof(sBuffer), "删除地图药");
-	AddMenuItem(menu, "", sBuffer);
+	AddToggleMenuItem(menu, "自动发药", GetConVarBool(FindConVar("ast_pills_enabled")));
+	AddToggleMenuItem(menu, "删除地图药", GetConVarBool(FindConVar("ast_pills_map_kill")));
 
 	DisplayMenu(menu, client, MENU_DISPLAY_TIME);
 	return Plugin_Handled;
@@ -842,20 +916,11 @@ public int Menu_MorePillsHandler(Handle menu, MenuAction action, int client, int
 		{
 			case 0: {
 				bool bPillsEnabled = GetConVarBool(FindConVar("ast_pills_enabled"));
-
-				if (bPillsEnabled) {
-					TZ_CallVote(client, 7, 0);
-				} else {
-					TZ_CallVote(client, 7, 1);
-				}
+				TZ_CallVote(client, 7, !bPillsEnabled);
 			}
 			case 1: {
 				bool bPillsMapKill = GetConVarBool(FindConVar("ast_pills_map_kill"));
-				if (bPillsMapKill) {
-					TZ_CallVote(client, 8, 0);
-				} else {
-					TZ_CallVote(client, 8, 1);
-				}
+				TZ_CallVote(client, 8, !bPillsMapKill);
 			}
 		}
 		drawPanel(client, 7);
@@ -866,19 +931,18 @@ public int Menu_MorePillsHandler(Handle menu, MenuAction action, int client, int
 
 public Action Menu_Tank(int client, int args)
 {
+	if (FindConVar("ai_tank_bhop") == null) {
+		PrintToChat(client, "\x04[AstMod] \x05AI_HardSI.smx \x01插件未安装，请联系管理员.");
+		drawPanel(client, 0);
+		return Plugin_Handled;
+	}
 	// 连跳，石头
 	Handle menu = CreateMenu(Menu_TankHandler);
 	SetMenuTitle(menu, "Tank 设定");
 	SetMenuExitBackButton(menu, true);
 
-	char sBuffer[32];
-	bool bAITankBhop = GetConVarBool(FindConVar("ai_tank_bhop"));
-	bAITankBhop ? Format(sBuffer, sizeof(sBuffer), "✔连跳") : Format(sBuffer, sizeof(sBuffer), "连跳");
-	AddMenuItem(menu, "", sBuffer);
-
-	bool bAITankRock = GetConVarBool(FindConVar("ai_tank_rock"));
-	bAITankRock ? Format(sBuffer, sizeof(sBuffer), "✔石头") : Format(sBuffer, sizeof(sBuffer), "石头");
-	AddMenuItem(menu, "", sBuffer);
+	AddToggleMenuItem(menu, "连跳", GetConVarBool(FindConVar("ai_tank_bhop")));
+	AddToggleMenuItem(menu, "石头", GetConVarBool(FindConVar("ai_tank_rock")));
 
 	DisplayMenu(menu, client, MENU_DISPLAY_TIME);
 	return Plugin_Handled;
@@ -891,22 +955,11 @@ public int Menu_TankHandler(Handle menu, MenuAction action, int client, int para
 		{
 			case 0: {
 				bool bAITankBhop = GetConVarBool(FindConVar("ai_tank_bhop"));
-
-				if (bAITankBhop) {
-					TZ_CallVote(client, 2, 0);
-					// SetConVarInt(hAITankBhop, 0);
-				} else {
-					TZ_CallVote(client, 2, 1);
-					// SetConVarInt(hAITankBhop, 1);
-				}
+				TZ_CallVote(client, 2, !bAITankBhop);
 			}
 			case 1: {
 				bool bAITankRock = GetConVarBool(FindConVar("ai_tank_rock"));
-				if (bAITankRock) {
-					TZ_CallVote(client, 3, 0);
-				} else {
-					TZ_CallVote(client, 3, 1);
-				}
+				TZ_CallVote(client, 3, !bAITankRock);
 			}
 		}
 		drawPanel(client, 7);
@@ -922,12 +975,9 @@ public Action Menu_HunterM2(int client, int args)
 	SetMenuTitle(menu, "推 Hunter 设定");
 	SetMenuExitBackButton(menu, true);
 
-	tempM2HunterFlag & M2_WEAPON_SMG ?
-		AddMenuItem(menu, "", "✔允许机枪推") : AddMenuItem(menu, "", "允许机枪推");
-	tempM2HunterFlag & M2_WEAPON_SHOTGUN ?
-		AddMenuItem(menu, "", "✔允许喷子推") : AddMenuItem(menu, "", "允许喷子推");
-	tempM2HunterFlag & M2_WEAPON_SNIPER ?
-		AddMenuItem(menu, "", "✔允许狙击推") : AddMenuItem(menu, "", "允许狙击推");
+	AddToggleMenuItem(menu, "允许机枪推", view_as<bool>(tempM2HunterFlag & M2_WEAPON_SMG));
+	AddToggleMenuItem(menu, "允许喷子推", view_as<bool>(tempM2HunterFlag & M2_WEAPON_SHOTGUN));
+	AddToggleMenuItem(menu, "允许狙击推", view_as<bool>(tempM2HunterFlag & M2_WEAPON_SNIPER));
 
 	AddMenuItem(menu, "", "发起投票");
 	DisplayMenu(menu, client, MENU_DISPLAY_TIME);
@@ -940,13 +990,13 @@ public int Menu_HunterM2Handler(Handle menu, MenuAction action, int client, int 
 		switch (param)
 		{
 			case 0: {
-					tempM2HunterFlag ^= M2_WEAPON_SMG;
+				tempM2HunterFlag ^= M2_WEAPON_SMG;
 			}
 			case 1: {
-					tempM2HunterFlag ^= M2_WEAPON_SHOTGUN;
+				tempM2HunterFlag ^= M2_WEAPON_SHOTGUN;
 			}
 			case 2: {
-					tempM2HunterFlag ^= M2_WEAPON_SNIPER;
+				tempM2HunterFlag ^= M2_WEAPON_SNIPER;
 			}
 			case 3: {
 				TZ_CallVote(client, 6, 0);
@@ -960,93 +1010,50 @@ public int Menu_HunterM2Handler(Handle menu, MenuAction action, int client, int 
 
 public Action Menu_PlayerInfected(int client, int args)
 {
+	ConVar hMaxInfected = FindConVar("ast_maxinfected");
+	ConVar hAllowHumanTank = FindConVar("ast_allowhumantank");
+
+	if (hMaxInfected == null) {
+		PrintToChat(client, "\x04[AstMod] \x05jointeam.smx \x01插件未安装，请联系管理员.");
+		drawPanel(client, 0);
+		return Plugin_Handled;
+	}
+
 	Handle menu = CreateMenu(Menu_PlayerInfectedHandler);
 	SetMenuTitle(menu, "玩家特感设定");
 	SetMenuExitBackButton(menu, true);
-	switch (GetConVarInt(FindConVar("ast_maxinfected"))) {
-		case 0: {
-			AddMenuItem(menu, "", "✔禁止玩家加入特感");
-			AddMenuItem(menu, "", "允许 1 名玩家加入特感");
-			AddMenuItem(menu, "", "允许 2 名玩家加入特感");
-			AddMenuItem(menu, "", "允许 3 名玩家加入特感");
-			AddMenuItem(menu, "", "允许 4 名玩家加入特感");
-		}
-		case 1: {
-			AddMenuItem(menu, "", "禁止玩家加入特感");
-			AddMenuItem(menu, "", "✔允许 1 名玩家加入特感");
-			AddMenuItem(menu, "", "允许 2 名玩家加入特感");
-			AddMenuItem(menu, "", "允许 3 名玩家加入特感");
-			AddMenuItem(menu, "", "允许 4 名玩家加入特感");
-		}
-		case 2: {
-			AddMenuItem(menu, "", "禁止玩家加入特感");
-			AddMenuItem(menu, "", "允许 1 名玩家加入特感");
-			AddMenuItem(menu, "", "✔允许 2 名玩家加入特感");
-			AddMenuItem(menu, "", "允许 3 名玩家加入特感");
-			AddMenuItem(menu, "", "允许 4 名玩家加入特感");
-		}
-		case 3: {
-			AddMenuItem(menu, "", "禁止玩家加入特感");
-			AddMenuItem(menu, "", "允许 1 名玩家加入特感");
-			AddMenuItem(menu, "", "允许 2 名玩家加入特感");
-			AddMenuItem(menu, "", "✔允许 3 名玩家加入特感");
-			AddMenuItem(menu, "", "允许 4 名玩家加入特感");
-		}
-		case 4: {
-			AddMenuItem(menu, "", "禁止玩家加入特感");
-			AddMenuItem(menu, "", "允许 1 名玩家加入特感");
-			AddMenuItem(menu, "", "允许 2 名玩家加入特感");
-			AddMenuItem(menu, "", "允许 3 名玩家加入特感");
-			AddMenuItem(menu, "", "✔允许 4 名玩家加入特感");
+
+	int iMaxInfected = GetConVarInt(hMaxInfected);
+
+	for (int i = 0; i <= 4; i++) {
+		if (i == 0)
+			AddToggleMenuItem(menu, "禁止玩家加入特感", !iMaxInfected);
+		else {
+			char buffer[32];
+			Format(buffer, sizeof(buffer), "允许 %d 位特感", i);
+			AddToggleMenuItem(menu, buffer, iMaxInfected == i);
 		}
 	}
-	switch (GetConVarInt(FindConVar("ast_allowhumantank"))) {
-		case 0: {
-			AddMenuItem(menu, "", "✔禁止玩家扮演 Tank");
-			AddMenuItem(menu, "", "允许玩家扮演 Tank");
-		}
-		case 1: {
-			AddMenuItem(menu, "", "禁止玩家扮演 Tank");
-			AddMenuItem(menu, "", "✔允许玩家扮演 Tank");
-		}
-	}
+
+	bool bAllowHumanTank = GetConVarBool(hAllowHumanTank);
+	AddToggleMenuItem(menu, "禁止玩家扮演 Tank", !bAllowHumanTank);
+	AddToggleMenuItem(menu, "允许玩家扮演 Tank", bAllowHumanTank);
+
 	DisplayMenu(menu, client, MENU_DISPLAY_TIME);
 	return Plugin_Handled;
+
 }
 
 public int Menu_PlayerInfectedHandler(Handle menu, MenuAction action, int client, int param)
 {
 	if (action == MenuAction_Select) {
-		// switch (param)
-		// {
-		// 	case 0: {
-		// 		TZ_CallVote(client, 4, 0);
-		// 	}
-		// 	case 1: {
-		// 		TZ_CallVote(client, 4, 1);
-		// 	}
-		// 	case 2: {
-		// 		TZ_CallVote(client, 4, 2);
-		// 	}
-		// 	case 3: {
-		// 		TZ_CallVote(client, 4, 3);
-		// 	}
-		// 	case 4: {
-		// 		TZ_CallVote(client, 4, 4);
-		// 	}
-		// 	case 5: {
-		// 		TZ_CallVote(client, 5, 0);
-		// 	}
-		// 	case 6: {
-		// 		TZ_CallVote(client, 5, 1);
-		// 	}
-		// }
 		if (param >= 0 && param <= 4) {
 			TZ_CallVote(client, 4, param);
-		} else if (param >= 5 && param <= 6) {
+		} else if (param == 5 || param == 6) {
 			TZ_CallVote(client, 5, param - 5);
 		}
-		DisplayMenu(menu, client, MENU_DISPLAY_TIME);
+		// DisplayMenu(menu, client, MENU_DISPLAY_TIME);
+		drawPanel(client, 7);
 	}
 	else if (action == MenuAction_Cancel) drawPanel(client, 7);
 	return 1;
@@ -1402,7 +1409,11 @@ public bool IsClientSurvivor(int client, bool isMenu) {
 
 public int GetDifficulty() {
 	ConVar cDifficulty = FindConVar("das_fakedifficulty");
-	if (cDifficulty == null) return 4;
+	if (cDifficulty == null) {
+		PrintToServer("\x04[ERROR!] \x05difficulty_adjustment_system.smx \x01插件未安装.");
+		LogError("difficulty_adjustment_system.smx 插件未安装");
+		return 4;
+	}
 	return GetConVarInt(cDifficulty);
 }
 
@@ -1412,6 +1423,18 @@ public void BypassAndExecuteCommand(int client, char[] strCommand, char[] strPar
 	SetCommandFlags(strCommand, flags & ~FCVAR_CHEAT);
 	FakeClientCommand(client, "%s %s", strCommand, strParam1);
 	SetCommandFlags(strCommand, flags);
+}
+
+public void ReloadVScript(ConVar convar, const char[] oldvalue, const char[] newvalue)
+{
+	ServerCommand("sm_reloadscript");
+}
+
+void AddToggleMenuItem(Handle menu, const char[] label, bool enabled)
+{
+    char sBuffer[32];
+    Format(sBuffer, sizeof(sBuffer), "%s%s", enabled ? "✔" : "", label);
+    AddMenuItem(menu, "", sBuffer);
 }
 
 ///////////////////////////////////////////////////
