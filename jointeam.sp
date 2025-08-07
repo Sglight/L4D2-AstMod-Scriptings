@@ -290,6 +290,7 @@ public Action L4D_OnTryOfferingTankBot(int tank_index, bool &enterStasis)
 		if ( GetConVarInt(hMaxInfected) > 0 && GetConVarBool(hAllowHumanTank) && getHumanInfected() >= 1 ) {
 			SetEntityHealth(tank_index, GetConVarInt(hHumanTankHp));
 			setHumanTankAttackConVar();
+			CPrintToChatAll("{default}玩家 Tank 血量只有 {olive}%d.", GetConVarInt(hHumanTankHp));
 			return Plugin_Continue;
 		}
 		return Plugin_Handled;

@@ -9,7 +9,6 @@
 
 ConVar cvarSpitCanHarmGascan;
 
-Handle hGascanIgnite;
 int g_iTickCount = 0;
 
 public Plugin myinfo =
@@ -17,8 +16,8 @@ public Plugin myinfo =
   name = "[L4D2] Allow Bot Spitter Ignite Gascan",
   author = "海洋空氣",
   description = "",
-  version = "1.0",
-  url = "https://steamcommunity.com/id/larkspur2017/"
+  version = "1.1",
+  url = "https://github.com/Sglight/L4D2-AstMod-Scriptings"
 };
 
 public void OnPluginStart()
@@ -33,10 +32,10 @@ public void L4D2_CInsectSwarm_CanHarm_Post(int acid, int spitter, int entity)
     if (GetConVarBool(cvarSpitCanHarmGascan)) {
       float time = GetConVarFloat(FindConVar("gascan_spit_time"));
 
-      g_iTickCount++;
-      if (hGascanIgnite == INVALID_HANDLE) {
-        hGascanIgnite = CreateTimer(time, Timer_GascanIgnite, entity);
+      if (g_iTickCount == 0) {
+        CreateTimer(time, Timer_GascanIgnite, entity);
       }
+      g_iTickCount++;
     }
   }
 }
@@ -49,7 +48,8 @@ public Action Timer_GascanIgnite(Handle timer, int entity)
     // Ignite
     SetEntProp(entity, Prop_Data, "m_iHealth", 0);
   }
-  CloseHandle(hGascanIgnite);
+  // CloseHandle(hGascanIgnite);
+  // hGascanIgnite = INVALID_HANDLE;
   g_iTickCount = 0;
   return Plugin_Continue;
 }
