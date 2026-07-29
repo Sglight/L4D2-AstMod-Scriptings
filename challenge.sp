@@ -55,8 +55,6 @@ int tempM2HunterFlag = -1;
 int tempMorePills = -1;
 int tempKillMapPills = -1;
 int tempWaveSpawnEnabled = -1;
-float tempSITimerNew = -1.0;
-int tempSILimitNew = -1;
 
 bool bIsUsingAbility[MAXPLAYERS + 1];
 float fDmgPrint = 0.0;
@@ -72,8 +70,6 @@ ConVar hReammoSMG;
 ConVar hReammoSniper;
 
 ConVar hSITimer;
-ConVar hSITimerNew;
-ConVar hSILimitNew;
 Handle g_hVote;
 
 ConVar hDmgModifyEnable;
@@ -81,14 +77,13 @@ ConVar hDmgThreshold;
 ConVar hRatioDamage;
 ConVar hFastGetup;
 ConVar hFastUseAction;
-ConVar hWaveSpawnEnabled;
 
 public Plugin myinfo =
 {
 	name = "Amethyst Challenge",
 	author = "海洋空氣",
 	description = "Difficulty Controller for Amethyst Mod.",
-	version = "2.4",
+	version = "2.5",
 	url = "https://github.com/Sglight/L4D2-AstMod-Scriptings/"
 };
 
@@ -118,9 +113,6 @@ public void OnPluginStart()
 	hReammoSniper = CreateConVar("ast_reammo_count_Sniper",		"15", "狙击枪回复备弹数量", FCVAR_NOTIFY, true, 1.0);
 
 	hSITimer = CreateConVar("ast_sitimer",						"1", "特感刷新速率（旧版）", FCVAR_NOTIFY, true, 0.0, true, 1.0);
-	hWaveSpawnEnabled = CreateConVar("ast_wave_spawn",			"1", "新版特感生成机制开关", FCVAR_NOTIFY, true, 0.0, true, 1.0);
-	hSITimerNew = CreateConVar("ast_sitimer_new",				"8", "特感刷新时间（新版，直接刷新控制时间）", FCVAR_NOTIFY, true, 0.0, true, 100.0);
-	hSILimitNew = CreateConVar("ast_silimit_new",				"3", "特感刷新数量（新版，一波特感数量）", FCVAR_NOTIFY, true, 0.0, true, 32.0);
 	
 	hDmgModifyEnable = CreateConVar("ast_dmgmodify",			"1", "伤害修改总开关", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	hDmgThreshold = CreateConVar("ast_dma_dmg",					"12.0", "被控扣血数值", FCVAR_NOTIFY, true, 1.0, true, 100.0);
@@ -129,12 +121,8 @@ public void OnPluginStart()
 	hFastUseAction = CreateConVar("ast_fast_use_action",		"1", "快速机关读条", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 
 	RegConsoleCmd("sm_laser", laserCommand, "激光瞄准器开关");
-	RegConsoleCmd("sm_si", NewSITimerCommand, "新版特感刷新速率调节，无极调节");
 
 	HookConVarChange(hSITimer, ReloadVScript);
-	HookConVarChange(hSITimerNew, ReloadVScript);
-	HookConVarChange(hSILimitNew, ReloadVScript);
-	HookConVarChange(hWaveSpawnEnabled, ReloadVScript);
 }
 
 public Action OnRoundStart(Handle event, const char[] name, bool dontBroadcast)
@@ -144,15 +132,6 @@ public Action OnRoundStart(Handle event, const char[] name, bool dontBroadcast)
 		iKillCI[i] = 0;
 	}
 	return Plugin_Handled;
-}
-
-public Action L4D_OnFirstSurvivorLeftSafeArea(int client)
-{
-	// 出门输出特感刷新参数
-	float fTimerCurrent = GetConVarFloat(hSITimerNew);
-	int iLimitCurrent = GetConVarInt(hSILimitNew);
-	PrintToChatAll("\x04[AstMod] \x01当前刷新速率：\x03%.1f秒%i特\x01.", fTimerCurrent, iLimitCurrent);
-	return Plugin_Continue;
 }
 
 public Action challengeRequest(int client, int args)
@@ -453,10 +432,6 @@ public void TZ_CallVote(int client, int target, int value)
 				tempKillMapPills = value;
 				SetBuiltinVoteResultCallback(g_hVote, KillMapPillsVoteResultHandler);
 			}
-			case 9: { // 新版特感速率
-				Format(sBuffer, sizeof(sBuffer), "修改特感刷新速度为 [%.1f秒%i特]", tempSITimerNew, tempSILimitNew);
-				SetBuiltinVoteResultCallback(g_hVote, SITimerNewVoteResultHandler);
-			}
 		}
 
 		SetBuiltinVoteArgument(g_hVote, sBuffer);
@@ -622,24 +597,6 @@ public void KillMapPillsVoteResultHandler(Handle vote, int num_votes, int num_cl
 	return;
 }
 
-public void SITimerNewVoteResultHandler(Handle vote, int num_votes, int num_clients, const int[][] client_info, int num_items, const int[][] item_info)
-{
-	for (int i = 0; i < num_items; i++) {
-		if (item_info[i][BUILTINVOTEINFO_ITEM_INDEX] == BUILTINVOTES_VOTE_YES) {
-			if (item_info[i][BUILTINVOTEINFO_ITEM_VOTES] > (num_votes / 2)) {
-				char sBuffer[64];
-				Format(sBuffer, sizeof(sBuffer), "修改特感刷新速度为 [%.1f秒%i特]", tempSITimerNew, tempSILimitNew);
-				DisplayBuiltinVotePass(vote, sBuffer);
-				SetConVarFloat(hSITimerNew, tempSITimerNew);
-				SetConVarInt(hSILimitNew, tempSILimitNew);
-				return;
-			}
-		}
-	}
-	DisplayBuiltinVoteFail(vote, BuiltinVoteFail_Loses);
-	return;
-}
-
 public void VoteHandler(Handle vote, BuiltinVoteAction action, int param1, int param2)
 {
 	switch (action) {
@@ -664,11 +621,11 @@ static const char timerOptions[4][] = {
 public Action Menu_SITimer(int client, int args)
 {
 	Handle menu = CreateMenu(Menu_SITimerHandler);
-	bool bWaveSpawnEnabled = GetConVarBool(hWaveSpawnEnabled);
+	bool bWaveSpawnEnabled = GetConVarBool(FindConVar("ast_wave_spawn"));
 	
 	if (bWaveSpawnEnabled) {
-		float fTimerCurrent = GetConVarFloat(hSITimerNew);
-		int iLimitCurrent = GetConVarInt(hSILimitNew);
+		float fTimerCurrent = GetConVarFloat(FindConVar("ast_sitimer_new"));
+		int iLimitCurrent = GetConVarInt(FindConVar("ast_silimit_new"));
 		SetMenuTitle(menu, "当前刷新速率：%.1f秒%i特", fTimerCurrent, iLimitCurrent);
 	} else {
 		SetMenuTitle(menu, "修改特感刷新速度");
@@ -701,7 +658,7 @@ public int Menu_SITimerHandler(Handle menu, MenuAction action, int client, int p
 
 		// 处理刷新速度选项（仅在旧版刷特下可选）
 		if (param < sizeof(timerOptions)) {
-			if (!GetConVarBool(hWaveSpawnEnabled)) {
+			if (!GetConVarBool(FindConVar("ast_wave_spawn"))) {
 				tempSITimer = param;
 				Format(buffer, sizeof(buffer), "%s", timerOptions[param]);
 				TZ_CallVoteStr(client, 1, buffer);
@@ -782,42 +739,13 @@ public int WaveSpawnVoteResultHandler(Handle vote, int num_votes, int num_client
 		if (item_info[i][BUILTINVOTEINFO_ITEM_INDEX] == BUILTINVOTES_VOTE_YES) {
 			if (item_info[i][BUILTINVOTEINFO_ITEM_VOTES] > (num_votes / 2)) {
 				DisplayBuiltinVotePass(vote, "正在更改刷特机制...");
-				SetConVarInt(hWaveSpawnEnabled, tempWaveSpawnEnabled);
+				SetConVarInt(FindConVar("ast_wave_spawn"), tempWaveSpawnEnabled);
 				return 1;
 			}
 		}
 	}
 	DisplayBuiltinVoteFail(vote, BuiltinVoteFail_Loses);
 	return 0;
-}
-
-public Action NewSITimerCommand(int client, int args)
-{
-	if ( !GetConVarBool(hWaveSpawnEnabled) ) {
-		ReplyToCommand(client, "\x04[AstMod] \x01此指令仅支持新版刷特机制！");
-		return Plugin_Handled;
-	}
-
-	if( args != 2 )
-	{
-		// 获取当前设定值
-		float fTimerCurrent = GetConVarFloat(hSITimerNew);
-		int iLimitCurrent = GetConVarInt(hSILimitNew);
-		ReplyToCommand(client, "\x04[AstMod] \x01当前刷新速率：\x03%.1f秒%i特", fTimerCurrent, iLimitCurrent);
-		ReplyToCommand(client, "\x04[AstMod] \x01使用方法: \x3sm_si <刷新时间> <特感数量>\x01，如：\x03!si 7.5 3");
-		return Plugin_Handled;
-	}
-
-	// 发起投票修改
-	char sSITimerNew[8];
-	char sSILimitNew[8];
-	GetCmdArg(1, sSITimerNew, sizeof(sSITimerNew));
-	GetCmdArg(2, sSILimitNew, sizeof(sSILimitNew));
-	tempSITimerNew = StringToFloat(sSITimerNew);
-	tempSILimitNew = StringToInt(sSILimitNew);
-	TZ_CallVote(client, 9, 0);
-
-	return Plugin_Handled;
 }
 
 int SIDamageOptions[] = {8, 12, 24};
@@ -864,7 +792,7 @@ public void ResetSettings()
 	SIDamage(12.0);
 	SetConVarInt(FindConVar("vs_tank_damage"), 24);
 	SetConVarInt(hSITimer, 1);
-	SetConVarBool(hWaveSpawnEnabled, true);
+	SetConVarBool(FindConVar("ast_wave_spawn"), true);
 	SetConVarBool(hRehealth, false);
 	SetConVarBool(hReammo, false);
 
@@ -1331,21 +1259,17 @@ public Action OnChangeTeam(Handle event, const char[] name, bool dontBroadcast)
 	int oldteam = GetEventInt(event, "oldteam");
 	if (client > 0 && IsClientInGame(client) && IsFakeClient(client) 
 	&& (newteam == TEAM_SURVIVORS || oldteam == TEAM_SURVIVORS)) {
-		ArrayList cvar = new ArrayList();
-		cvar.Push(tempTankBhop);
-		cvar.Push(tempTankRock);
-		
-		CreateTimer(1.0, Timer_SetTankConVar, cvar);
+		CreateTimer(1.0, Timer_SetTankConVar);
 	}
 	return Plugin_Continue;
 }
 
-public Action Timer_SetTankConVar(Handle timer, ArrayList cvar)
+public Action Timer_SetTankConVar(Handle timer)
 {
-	if (cvar.Get(0) != -1) {
+	if (tempTankBhop != -1) {
 		SetConVarInt(FindConVar("ai_tank_bhop"), tempTankBhop);
 	}
-	if (cvar.Get(1) != -1) {
+	if (tempTankRock != -1) {
 		SetConVarInt(FindConVar("ai_tank_rock"), tempTankRock);
 	}
 	return Plugin_Continue;
